@@ -7,7 +7,7 @@ class MotorRAG:
         print("Inicializando Motor RAG e conectando ao ChromaDB...")
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.banco_vetorial = Chroma(
-            persist_directory="./chroma_db_local", embedding_function=self.embeddings
+            persist_directory="../chroma_db_local", embedding_function=self.embeddings
         )
 
     def buscar_gabaritos(self, prompt_usuario: str, limite: int = 3):

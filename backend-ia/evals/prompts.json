@@ -1,0 +1,62 @@
+[
+  {
+    "id": "crud-basico",
+    "prompt": "API CRUD de itens com DynamoDB",
+    "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "crud-basico-variacao",
+    "prompt": "Preciso de endpoints para criar, consultar, editar e remover produtos, guardando no DynamoDB",
+    "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "so-leitura",
+    "prompt": "API somente leitura para listar e buscar produtos",
+    "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "so-criacao",
+    "prompt": "API com um único endpoint para cadastrar clientes",
+    "esperado": { "lambdas": 1, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "so-exclusao",
+    "prompt": "API com um único endpoint para excluir pedidos pelo id",
+    "esperado": { "lambdas": 1, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "duas-entidades",
+    "prompt": "API CRUD completa para clientes e para pedidos, cada um com sua tabela",
+    "esperado": { "lambdas": 8, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "listar-e-criar",
+    "prompt": "API para listar tarefas e criar novas tarefas",
+    "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "atualizar-status",
+    "prompt": "API com um endpoint para buscar um pedido e outro para atualizar o status do pedido",
+    "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "fila-sqs",
+    "prompt": "API que recebe um pedido, coloca em uma fila SQS, e uma Lambda consumidora grava no DynamoDB",
+    "esperado": { "lambdas": 2, "recursos": ["aws_sqs_queue", "aws_dynamodb_table", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "upload-s3",
+    "prompt": "API que gera URL pré-assinada para upload de arquivos em um bucket S3",
+    "esperado": { "lambdas": 1, "recursos": ["aws_s3_bucket", "aws_api_gateway_rest_api"] }
+  },
+  {
+    "id": "autenticacao",
+    "prompt": "API CRUD de notas protegida por autenticação com Cognito",
+    "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api", "aws_cognito_user_pool"] }
+  },
+  {
+    "id": "agendada",
+    "prompt": "Uma Lambda que roda todo dia às 8h e grava um relatório em um bucket S3",
+    "esperado": { "lambdas": 1, "recursos": ["aws_s3_bucket", "aws_cloudwatch_event_rule"] }
+  }
+]

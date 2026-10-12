@@ -1,0 +1,673 @@
+[
+  {
+    "id": "crud-basico",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "4 arquivos .py mas 0 aws_lambda_function",
+        "esperava 4 Lambdas, veio 0"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda (GET Item)]\n    A --> C[Lambda (POST Item)]\n    A --> D[Lambda (PUT Item)]\n    A --> E[Lambda (DELETE Item)]\n    B --> F[DynamoDB]\n    C --> F\n    D --> F\n    E --> F",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "DynamoDB"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"items_table\" {\n  name           = \"items_table\"\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"items_api\" {\n  name        = \"items_api\"\n  description = \"API Gateway for items\"\n}\n\nresource \"aws_api_gateway_resource\" \"items_resource\" {\n  rest_api_id = aws_api_gateway_rest_api.items_api.id\n  parent_id   = aws_api_gateway_rest_api.items_api.root_resource_id\n  path_part   = \"items\"\n}\n\nresource \"aws_api_gateway_method\" \"get_item\" {\n  rest_api_id   = aws_api_gateway_rest_api.items_api.id\n  resource_id   = aws_api_gateway_resource.items_resource.id\n  http_method   = \"GET\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"get_item_integration\" {\n  rest_api_id = aws_api_gateway_rest_api.items_api.id\n  resource_id = aws_api_gateway_resource.items_resource.id\n  http_method = aws_api_gateway_method.get_item.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"GET\"\n  uri         = \"arn:aws:apigateway:${var.region}:lambda:path/2015-03-31/functions/${aws_lambda_function.get_item.arn}/invocations\"\n}\n\nresource \"aws_api_gateway_deployment\" \"items_deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.items_api.id\n  depends_on  = [aws_api_gateway_integration.get_item_integration]\n}\n\nresource \"aws_lambda_permission\" \"get_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvokeGetItem\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.get_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.items_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"post_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvokePostItem\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.post_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.items_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"put_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvokePutItem\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.put_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.items_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"delete_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvokeDeleteItem\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.delete_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.items_api.execution_arn}/*/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "get_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.get_item(\n            Key={\n                \"id\": event[\"id\"]\n            }\n        )\n        item = response.get(\"Item\")\n        if item:\n            return {\n                \"statusCode\": 200,\n                \"headers\": {\"Content-Type\": \"application/json\"},\n                \"body\": json.dumps(item, default=str)\n            }\n        else:\n            return {\n                \"statusCode\": 404,\n                \"headers\": {\"Content-Type\": \"application/json\"},\n                \"body\": json.dumps({\"message\": \"Item not found\"}, default=str)\n            }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Internal server error\"}, default=str)\n        }",
+          "post_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.put_item(\n            Item=event\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Item created\"}, default=str)\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Internal server error\"}, default=str)\n        }",
+          "put_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.update_item(\n            Key={\n                \"id\": event[\"id\"]\n            },\n            UpdateExpression=\"set #attr = :val\",\n            ExpressionAttributeNames={\n                \"#attr\": \"attribute\"\n            },\n            ExpressionAttributeValues={\n                \":val\": event[\"attribute\"]\n            }\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Item updated\"}, default=str)\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Internal server error\"}, default=str)\n        }",
+          "delete_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.delete_item(\n            Key={\n                \"id\": event[\"id\"]\n            }\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Item deleted\"}, default=str)\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Internal server error\"}, default=str)\n        }",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "crud-basico-variacao",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "1 roles para 4 Lambdas (regra 4)",
+        "1 permissions para 4 Lambdas (regra 4)"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Create Product]\n    A --> C[Get Product]\n    A --> D[Update Product]\n    A --> E[Delete Product]\n    B --> F[Create Product Lambda]\n    C --> G[Get Product Lambda]\n    D --> H[Update Product Lambda]\n    E --> I[Delete Product Lambda]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Create Product"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Get Product"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Update Product"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Delete Product"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"product_table\" {\n  name           = \"product_table\"\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"product-api\"\n  description = \"API Gateway for product operations\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"product\"\n}\n\nresource \"aws_api_gateway_method\" \"create\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"create\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.create.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.create_product.arn\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  depends_on  = [aws_api_gateway_integration.create]\n}\n\nresource \"aws_lambda_function\" \"create_product\" {\n  function_name = \"create_product\"\n  runtime       = \"python3.12\"\n  handler       = \"create_product.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"create_product.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.product_table.name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:PutItem\",\n          \"dynamodb:GetItem\",\n          \"dynamodb:UpdateItem\",\n          \"dynamodb:DeleteItem\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.product_table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"api_gateway\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_product.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_api_gateway_method\" \"get\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"GET\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"get\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.get.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"GET\"\n  uri         = aws_lambda_function.get_product.arn\n}\n\nresource \"aws_api_gateway_method\" \"update\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"PUT\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"update\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.update.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"PUT\"\n  uri         = aws_lambda_function.update_product.arn\n}\n\nresource \"aws_api_gateway_method\" \"delete\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"DELETE\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"delete\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.delete.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"DELETE\"\n  uri         = aws_lambda_function.delete_product.arn\n}\n\nresource \"aws_lambda_function\" \"get_product\" {\n  function_name = \"get_product\"\n  runtime       = \"python3.12\"\n  handler       = \"get_product.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"get_product.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.product_table.name\n    }\n  }\n}\n\nresource \"aws_lambda_function\" \"update_product\" {\n  function_name = \"update_product\"\n  runtime       = \"python3.12\"\n  handler       = \"update_product.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"update_product.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.product_table.name\n    }\n  }\n}\n\nresource \"aws_lambda_function\" \"delete_product\" {\n  function_name = \"delete_product\"\n  runtime       = \"python3.12\"\n  handler       = \"delete_product.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"delete_product.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.product_table.name\n    }\n  }\n}\n\nresource \"aws_cloudwatch_log_group\" \"lambda_logs\" {\n  name = \"/aws/lambda/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "create_product.py": "import boto3\nfrom botocore.exceptions import ClientError\nimport json\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.put_item(\n            Item={\n                \"id\": event.get(\"id\") or str(uuid.uuid4()),\n                \"name\": event.get(\"name\") or \"\",\n                \"description\": event.get(\"description\") or \"\",\n                \"price\": event.get(\"price\") or 0.0\n            }\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"id\": response.get(\"Attributes\", {}).get(\"id\")\n            })\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"error\": \"Internal Server Error\"\n            })\n        }\n",
+          "get_product.py": "import boto3\nfrom botocore.exceptions import ClientError\nimport json\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.get_item(\n            Key={\n                \"id\": event.get(\"id\")\n            }\n        )\n        item = response.get(\"Item\")\n        if item:\n            return {\n                \"statusCode\": 200,\n                \"headers\": {\n                    \"Content-Type\": \"application/json\"\n                },\n                \"body\": json.dumps(item)\n            }\n        else:\n            return {\n                \"statusCode\": 404,\n                \"headers\": {\n                    \"Content-Type\": \"application/json\"\n                },\n                \"body\": json.dumps({\n                    \"error\": \"Item not found\"\n                })\n            }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"error\": \"Internal Server Error\"\n            })\n        }\n",
+          "update_product.py": "import boto3\nfrom botocore.exceptions import ClientError\nimport json\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.update_item(\n            Key={\n                \"id\": event.get(\"id\")\n            },\n            UpdateExpression=\"set name=:n, description=:d, price=:p\",\n            ExpressionAttributeValues={\n                \":n\": event.get(\"name\") or \"\",\n                \":d\": event.get(\"description\") or \"\",\n                \":p\": event.get(\"price\") or 0.0\n            }\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"id\": event.get(\"id\")\n            })\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"error\": \"Internal Server Error\"\n            })\n        }\n",
+          "delete_product.py": "import boto3\nfrom botocore.exceptions import ClientError\nimport json\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\")\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(TABLE_NAME)\n\n    try:\n        response = table.delete_item(\n            Key={\n                \"id\": event.get(\"id\")\n            }\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"id\": event.get(\"id\")\n            })\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\n                \"error\": \"Internal Server Error\"\n            })\n        }\n",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "so-leitura",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "1 roles para 2 Lambdas (regra 4)"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Lambda List Products]\n    B --> C[DynamoDB Table]\n    A[API Gateway] --> D[Lambda Get Product]\n    D --> C[DynamoDB Table]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda List Products"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Get Product"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n\nresource \"aws_dynamodb_table\" \"products_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"products-api\"\n  description = \"API for products\"\n}\n\nresource \"aws_api_gateway_resource\" \"products\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"products\"\n}\n\nresource \"aws_api_gateway_method\" \"list_products\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.products.id\n  http_method   = \"GET\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"list_products_integration\" {\n  rest_api_id           = aws_api_gateway_rest_api.api.id\n  resource_id           = aws_api_gateway_resource.products.id\n  http_method           = aws_api_gateway_method.list_products.http_method\n  integration_http_method = \"POST\"\n  type                  = \"AWS_PROXY\"\n  uri                   = aws_lambda_function.lambda_list_products.invoke_arn\n}\n\nresource \"aws_api_gateway_deployment\" \"api_deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  depends_on  = [aws_api_gateway_integration.list_products_integration]\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.lambda_list_products.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission_get\" {\n  statement_id  = \"AllowAPIGatewayInvokeGet\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.lambda_get_product.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_function\" \"lambda_list_products\" {\n  function_name = \"lambda_list_products\"\n  runtime       = \"python3.12\"\n  handler       = \"list_products.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n  filename      = \"lambda_list_products.zip\"\n}\n\nresource \"aws_lambda_function\" \"lambda_get_product\" {\n  function_name = \"lambda_get_product\"\n  runtime       = \"python3.12\"\n  handler       = \"get_product.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n  filename      = \"lambda_get_product.zip\"\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:GetItem\",\n          \"dynamodb:Query\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.products_table.arn\n      }\n    ]\n  })\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}"
+        },
+        "python": {
+          "list_products.py": "import boto3\nimport json\n\nfrom botocore.exceptions import ClientError\n\ns3 = boto3.client('s3')\n\n\n\ndef handler(event, context):\n    try:\n        response = s3.list_objects_v2(Bucket='your-bucket-name', Prefix='your-prefix/')\n        items = response.get('Contents', [])\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps(items, default=str)\n        }\n    except ClientError as e:\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }\n",
+          "get_product.py": "import boto3\nimport json\n\nfrom botocore.exceptions import ClientError\n\ns3 = boto3.client('s3')\n\n\n\ndef handler(event, context):\n    try:\n        response = s3.get_object(Bucket='your-bucket-name', Key='your-key/')\n        item = response.get('Body').read()\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps(item, default=str)\n        }\n    except ClientError as e:\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }\n",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "so-criacao",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "4 arquivos .py mas 1 aws_lambda_function"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda Create Customer]\n    B --> C[DynamoDB Table]\n    A --> D[Lambda Get Customer]\n    D --> C\n    A --> E[Lambda Update Customer]\n    E --> C\n    A --> F[Lambda Delete Customer]\n    F --> C",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Create Customer"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Get Customer"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Update Customer"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Delete Customer"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n\nresource \"aws_dynamodb_table\" \"customer_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_lambda_function\" \"create_customer\" {\n  function_name = \"create_customer\"\n  role          = aws_iam_role.lambda_role.arn\n  handler       = \"create_customer.handler\"\n  runtime       = \"python3.12\"\n  code {\n    filename = \"create_customer.zip\"\n  }\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:PutItem\",\n          \"dynamodb:GetItem\",\n          \"dynamodb:UpdateItem\",\n          \"dynamodb:DeleteItem\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.customer_table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_customer.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"customer-api\"\n  description = \"API Gateway for customer operations\"\n}\n\nresource \"aws_api_gateway_resource\" \"customer\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"customer\"\n}\n\nresource \"aws_api_gateway_method\" \"create\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.customer.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"create\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.customer.id\n  http_method = aws_api_gateway_method.create.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = \"arn:aws:apigateway:${var.region}:lambda:path/2015-03-31/functions/${aws_lambda_function.create_customer.arn}/invocations\"\n}\n\nresource \"aws_api_gateway_deployment\" \"api\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  stage_name  = \"prod\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}"
+        },
+        "python": {
+          "create_customer.py": "import os\nimport json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nlogger = boto3.getLogger()\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['REGION'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.put_item(\n            Item=event\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps(response, default=str)\n        }\n    except ClientError as e:\n        logger.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\"error\": \"Internal Server Error\"})\n        }\n",
+          "get_customer.py": "import os\nimport json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nlogger = boto3.getLogger()\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['REGION'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.get_item(\n            Key={'id': event['id']}\n        )\n        if 'Item' in response:\n            return {\n                \"statusCode\": 200,\n                \"headers\": {\n                    \"Content-Type\": \"application/json\"\n                },\n                \"body\": json.dumps(response['Item'], default=str)\n            }\n        else:\n            return {\n                \"statusCode\": 404,\n                \"headers\": {\n                    \"Content-Type\": \"application/json\"\n                },\n                \"body\": json.dumps({\"error\": \"Item not found\"})\n            }\n    except ClientError as e:\n        logger.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\"error\": \"Internal Server Error\"})\n        }\n",
+          "update_customer.py": "import os\nimport json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nlogger = boto3.getLogger()\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['REGION'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.update_item(\n            Key={'id': event['id']},\n            UpdateExpression='SET #name = :name, #age = :age',\n            ExpressionAttributeNames={'#name': 'name', '#age': 'age'},\n            ExpressionAttributeValues={':name': event['name'], ':age': event['age']}\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps(response, default=str)\n        }\n    except ClientError as e:\n        logger.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\"error\": \"Internal Server Error\"})\n        }\n",
+          "delete_customer.py": "import os\nimport json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nlogger = boto3.getLogger()\n\ndef lambda_handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['REGION'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.delete_item(\n            Key={'id': event['id']}\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps(response, default=str)\n        }\n    except ClientError as e:\n        logger.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\n                \"Content-Type\": \"application/json\"\n            },\n            \"body\": json.dumps({\"error\": \"Internal Server Error\"})\n        }\n",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/orchestrator.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "so-exclusao",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Lambda: Delete Order]\n    B --> C[DynamoDB: Delete Order]\n    C --> D[CloudWatch Logs: Delete Order]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Delete Order"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "Orders Table"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon CloudWatch Logs",
+          "resource_name": "Delete Order Logs"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"orders_table\" {\n  name           = \"OrdersTable\"\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"order_id\"\n  attribute {\n    name = \"order_id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"OrderAPI\"\n  description = \"API for order management\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"orders\"\n}\n\nresource \"aws_api_gateway_method\" \"delete\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"DELETE\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"integration\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.delete.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.delete_order.invoke_arn\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  depends_on  = [aws_api_gateway_integration.integration]\n}\n\nresource \"aws_lambda_function\" \"delete_order\" {\n  filename         = \"delete_order.zip\"\n  function_name    = \"delete_order\"\n  role             = aws_iam_role.lambda_role.arn\n  handler          = \"delete_order.handler\"\n  runtime          = \"python3.12\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.orders_table.name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:DeleteItem\",\n          \"dynamodb:GetItem\",\n          \"logs:CreateLogStream\",\n          \"logs:PutLogEvents\"\n        ]\n        Effect = \"Allow\"\n        Resource = [\n          aws_dynamodb_table.orders_table.arn,\n          \"arn:aws:logs:${var.region}:${var.account_id}:log-group:/aws/lambda/delete_order\"\n        ]\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"api_gateway\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.delete_order.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"arn:aws:execute-api:${var.region}:${var.account_id}:${aws_api_gateway_rest_api.api.id}/*/*\"\n}\n\nvariable \"region\" {\n  description = \"The AWS region to deploy the resources\"\n  type        = string\n}\n\nvariable \"account_id\" {\n  description = \"The AWS account ID\"\n  type        = string\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"The AWS region to deploy the resources\"\n  type        = string\n}\n\nvariable \"account_id\" {\n  description = \"The AWS account ID\"\n  type        = string\n}"
+        },
+        "python": {
+          "delete_order.py": "import os\nimport json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nlogger = boto3.getLogger()\n\ndef handler(event, context):\n    table_name = os.environ.get(\"TABLE_NAME\")\n    if not table_name:\n        raise RuntimeError(\"Missing required environment variable: TABLE_NAME\")\n\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(table_name)\n\n    order_id = event.get(\"order_id\")\n    if not order_id:\n        return {\n            \"statusCode\": 400,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"order_id is required\"})\n        }\n\n    try:\n        response = table.delete_item(\n            Key={\"order_id\": order_id}\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"message\": \"Order deleted successfully\"})\n        }\n    except ClientError as e:\n        logger.error(e)\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"Internal server error\"})\n        }"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "duas-entidades",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "esperava 8 Lambdas, veio 4",
+        "1 roles para 4 Lambdas (regra 4)"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Lambda Create Item]\n    A --> C[Lambda Get Item]\n    A --> D[Lambda Update Item]\n    A --> E[Lambda Delete Item]\n    B --> F[DynamoDB Table]\n    C --> F\n    D --> F\n    E --> F\n    F --> G[CloudWatch Logs]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Create Item"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Get Item"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Update Item"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Delete Item"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "Table"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API"
+        },
+        {
+          "service": "Amazon CloudWatch Logs",
+          "resource_name": "Logs"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"DynamoDB table name\"\n  type        = string\n}\n\nresource \"aws_dynamodb_table\" \"table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"api\"\n  description = \"API Gateway for CRUD operations\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"items\"\n}\n\nresource \"aws_api_gateway_method\" \"create\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"create\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.create.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.create_item.arn\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  depends_on  = [aws_api_gateway_integration.create]\n}\n\nresource \"aws_lambda_function\" \"create_item\" {\n  function_name = \"create_item\"\n  runtime       = \"python3.12\"\n  handler       = \"create_item.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"create_item.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:PutItem\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"create_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_function\" \"get_item\" {\n  function_name = \"get_item\"\n  runtime       = \"python3.12\"\n  handler       = \"get_item.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"get_item.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_lambda_permission\" \"get_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.get_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_function\" \"update_item\" {\n  function_name = \"update_item\"\n  runtime       = \"python3.12\"\n  handler       = \"update_item.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"update_item.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_lambda_permission\" \"update_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.update_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_function\" \"delete_item\" {\n  function_name = \"delete_item\"\n  runtime       = \"python3.12\"\n  handler       = \"delete_item.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"delete_item.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_lambda_permission\" \"delete_item_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.delete_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_cloudwatch_log_group\" \"log_group\" {\n  name = \"/aws/lambda/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"DynamoDB table name\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "create_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['region'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.put_item(\n            Item=event\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Item created successfully'})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "get_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['region'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.get_item(\n            Key={'id': event['id']}\n        )\n        if 'Item' in response:\n            return {\n               'statusCode': 200,\n                'headers': {\n                    'Content-Type': 'application/json'\n                },\n                'body': json.dumps(response['Item'])\n            }\n        else:\n            return {\n               'statusCode': 404,\n                'headers': {\n                    'Content-Type': 'application/json'\n                },\n                'body': json.dumps({'message': 'Item not found'})\n            }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "update_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['region'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.update_item(\n            Key={'id': event['id']},\n            UpdateExpression='SET #attr1 = :val1, #attr2 = :val2',\n            ExpressionAttributeNames={'#attr1': 'name', '#attr2': 'email'},\n            ExpressionAttributeValues={':val1': event['name'], ':val2': event['email']}\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Item updated successfully'})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "delete_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=os.environ['region'])\n    table = dynamodb.Table(os.environ['TABLE_NAME'])\n\n    try:\n        response = table.delete_item(\n            Key={'id': event['id']}\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Item deleted successfully'})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "listar-e-criar",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "1 roles para 2 Lambdas (regra 4)"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda List Tasks]\n    A --> C[Lambda Create Task]\n    B --> D[DynamoDB Table]\n    C --> D",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda List Tasks"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Create Task"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n\nresource \"aws_dynamodb_table\" \"tasks_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_lambda_function\" \"list_tasks\" {\n  function_name = \"list_tasks\"\n  role          = aws_iam_role.lambda_role.arn\n  handler       = \"list_tasks.handler\"\n  runtime       = \"python3.12\"\n  filename      = \"list_tasks.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_lambda_function\" \"create_task\" {\n  function_name = \"create_task\"\n  role          = aws_iam_role.lambda_role.arn\n  handler       = \"create_task.handler\"\n  runtime       = \"python3.12\"\n  filename      = \"create_task.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:GetItem\",\n          \"dynamodb:PutItem\",\n          \"dynamodb:Scan\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.tasks_table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"tasks-api\"\n  description = \"API for managing tasks\"\n}\n\nresource \"aws_api_gateway_resource\" \"tasks\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"tasks\"\n}\n\nresource \"aws_api_gateway_method\" \"get_tasks\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.tasks.id\n  http_method   = \"GET\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"get_tasks_integration\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.tasks.id\n  http_method = aws_api_gateway_method.get_tasks.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.list_tasks.invoke_arn\n}\n\nresource \"aws_api_gateway_deployment\" \"api_deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  stage_name  = \"prod\"\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.list_tasks.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission_create\" {\n  statement_id  = \"AllowAPIGatewayInvokeCreate\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_task.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}"
+        },
+        "python": {
+          "list_tasks.py": "import boto3\nimport json\n\ns3 = boto3.client('s3')\n\ndef handler(event, context):\n    try:\n        response = s3.list_objects_v2(Bucket='your-bucket-name', Prefix='your-prefix')\n        items = response.get('Contents', [])\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps(items, default=str)\n        }\n    except Exception as e:\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'}, default=str)\n        }",
+          "create_task.py": "import boto3\nimport json\n\ns3 = boto3.client('s3')\n\ndef handler(event, context):\n    try:\n        response = s3.put_object(Bucket='your-bucket-name', Key='your-key', Body=event['body'])\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Task created successfully'}, default=str)\n        }\n    except Exception as e:\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'}, default=str)\n        }",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "atualizar-status",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Lambda Get Item]\n    A --> C[Lambda Update Status]\n    B --> D[DynamoDB Table]\n    C --> D",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Get Item"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Lambda Update Status"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"order_table\" {\n  name           = \"order_table\"\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"order_id\"\n  attribute {\n    name = \"order_id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"order_api\" {\n  name        = \"order_api\"\n  description = \"API for order management\"\n}\n\nresource \"aws_api_gateway_resource\" \"get_order\" {\n  rest_api_id = aws_api_gateway_rest_api.order_api.id\n  parent_id   = aws_api_gateway_rest_api.order_api.root_resource_id\n  path_part   = \"order\"\n}\n\nresource \"aws_api_gateway_method\" \"get_order\" {\n  rest_api_id   = aws_api_gateway_rest_api.order_api.id\n  resource_id   = aws_api_gateway_resource.get_order.id\n  http_method   = \"GET\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"get_order\" {\n  rest_api_id           = aws_api_gateway_rest_api.order_api.id\n  resource_id           = aws_api_gateway_resource.get_order.id\n  http_method           = aws_api_gateway_method.get_order.http_method\n  integration_http_method = \"POST\"\n  type                  = \"AWS_PROXY\"\n  uri                   = aws_lambda_function.get_order.arn\n}\n\nresource \"aws_api_gateway_deployment\" \"order_api\" {\n  rest_api_id = aws_api_gateway_rest_api.order_api.id\n  depends_on  = [aws_api_gateway_integration.get_order]\n}\n\nresource \"aws_lambda_function\" \"get_order\" {\n  filename         = \"get_order.zip\"\n  function_name    = \"get_order\"\n  role             = aws_iam_role.get_order.arn\n  handler          = \"get_order.handler\"\n  runtime          = \"python3.12\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.order_table.name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"get_order\" {\n  name = \"get_order_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"apigateway.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"get_order\" {\n  role = aws_iam_role.get_order.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:GetItem\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.order_table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"get_order\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.get_order.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.order_api.execution_arn}/*/*\"\n}\n\nresource \"aws_api_gateway_resource\" \"update_order\" {\n  rest_api_id = aws_api_gateway_rest_api.order_api.id\n  parent_id   = aws_api_gateway_rest_api.order_api.root_resource_id\n  path_part   = \"order\"\n}\n\nresource \"aws_api_gateway_method\" \"update_order\" {\n  rest_api_id   = aws_api_gateway_rest_api.order_api.id\n  resource_id   = aws_api_gateway_resource.update_order.id\n  http_method   = \"PUT\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"update_order\" {\n  rest_api_id           = aws_api_gateway_rest_api.order_api.id\n  resource_id           = aws_api_gateway_resource.update_order.id\n  http_method           = aws_api_gateway_method.update_order.http_method\n  integration_http_method = \"POST\"\n  type                  = \"AWS_PROXY\"\n  uri                   = aws_lambda_function.update_order.arn\n}\n\nresource \"aws_api_gateway_deployment\" \"order_api\" {\n  rest_api_id = aws_api_gateway_rest_api.order_api.id\n  depends_on  = [aws_api_gateway_integration.update_order]\n}\n\nresource \"aws_lambda_function\" \"update_order\" {\n  filename         = \"update_order.zip\"\n  function_name    = \"update_order\"\n  role             = aws_iam_role.update_order.arn\n  handler          = \"update_order.handler\"\n  runtime          = \"python3.12\"\n  environment {\n    variables = {\n      TABLE_NAME = aws_dynamodb_table.order_table.name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"update_order\" {\n  name = \"update_order_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"apigateway.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"update_order\" {\n  role = aws_iam_role.update_order.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:UpdateItem\"\n        ]\n        Effect = \"Allow\"\n        Resource = aws_dynamodb_table.order_table.arn\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"update_order\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.update_order.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.order_api.execution_arn}/*/*\"\n}\n",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "get_order.py": "import os\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef lambda_handler(event, context):\n    table_name = os.environ.get(\"TABLE_NAME\")\n    if not table_name:\n        raise RuntimeError(\"Missing required environment variable: TABLE_NAME\")\n\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(table_name)\n\n    order_id = event.get(\"order_id\")\n    if not order_id:\n        return {\n            \"statusCode\": 400,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"order_id is required\"})\n        }\n\n    try:\n        response = table.get_item(\n            Key={\"order_id\": order_id}\n        )\n        item = response.get(\"Item\")\n        if not item:\n            return {\n                \"statusCode\": 404,\n                \"headers\": {\"Content-Type\": \"application/json\"},\n                \"body\": json.dumps({\"error\": \"Order not found\"})\n            }\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps(item, default=str)\n        }\n    except ClientError as e:\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"Internal server error\"})\n        }\n",
+          "update_order.py": "import os\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef lambda_handler(event, context):\n    table_name = os.environ.get(\"TABLE_NAME\")\n    if not table_name:\n        raise RuntimeError(\"Missing required environment variable: TABLE_NAME\")\n\n    dynamodb = boto3.resource(\"dynamodb\")\n    table = dynamodb.Table(table_name)\n\n    order_id = event.get(\"order_id\")\n    if not order_id:\n        return {\n            \"statusCode\": 400,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"order_id is required\"})\n        }\n\n    status = event.get(\"status\")\n    if not status:\n        return {\n            \"statusCode\": 400,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"status is required\"})\n        }\n\n    try:\n        response = table.update_item(\n            Key={\"order_id\": order_id},\n            UpdateExpression=\"set status = :s\",\n            ExpressionAttributeValues={\":s\": status},\n            ReturnValues=\"UPDATED_NEW\"\n        )\n        return {\n            \"statusCode\": 200,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps(response.get(\"Attributes\"), default=str)\n        }\n    except ClientError as e:\n        return {\n            \"statusCode\": 500,\n            \"headers\": {\"Content-Type\": \"application/json\"},\n            \"body\": json.dumps({\"error\": \"Internal server error\"})\n        }\n",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "fila-sqs",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "esperava 2 Lambdas, veio 1"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Lambda: create_item.py]\n    B --> C[SQS: pdf_mail_queue]\n    C --> D[Lambda: pdf_mail_consumer.py]\n    D --> E[DynamoDB: report_table]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "create_item.py"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "pdf_mail_consumer.py"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon Simple Queue Service",
+          "resource_name": "pdf_mail_queue"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "report_table"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n\nvariable \"queue_url\" {\n  description = \"URL of the SQS queue\"\n  type        = string\n}\n\nresource \"aws_dynamodb_table\" \"report_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"execution_id\"\n  range_key      = \"SK\"\n  attribute {\n    name = \"execution_id\"\n    type = \"S\"\n  }\n  attribute {\n    name = \"SK\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"report-api\"\n  description = \"API for report adapter\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"report\"\n}\n\nresource \"aws_api_gateway_method\" \"method\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"integration\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.method.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = \"arn:aws:apigateway:${var.region}:lambda:path/2015-03-31/functions/${aws_lambda_function.create_item.arn}/invocations\"\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  depends_on  = [aws_api_gateway_integration.integration]\n}\n\nresource \"aws_lambda_function\" \"create_item\" {\n  function_name = \"create_item\"\n  role          = aws_iam_role.lambda_role.arn\n  handler       = \"create_item.handler\"\n  runtime       = \"python3.12\"\n  filename      = \"create_item.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:PutItem\",\n          \"sqs:SendMessage\"\n        ]\n        Effect = \"Allow\"\n        Resource = [\n          aws_dynamodb_table.report_table.arn,\n          aws_sqs_queue.pdf_mail_queue.arn\n        ]\n      }\n    ]\n  })\n}\n\nresource \"aws_sqs_queue\" \"pdf_mail_queue\" {\n  name = \"pdf_mail_queue\"\n}\n\nresource \"aws_lambda_permission\" \"api_gateway_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n\nvariable \"queue_url\" {\n  description = \"URL of the SQS queue\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "create_item.py": "import json\nimport boto3\nfrom botocore.exceptions import ClientError\n\nsqs_client = boto3.client('sqs', region_name=os.environ['region'])\ndynamodb_client = boto3.client('dynamodb', region_name=os.environ['region'])\n\ndef handler(event, context):\n    try:\n        execution_id = event['execution_id']\n        email = event['email']\n        prompt = event['prompt']\n        s3_file_path = event['s3_file_path']\n        technical_analysis = event['technical_analysis']\n\n        # Put item in DynamoDB\n        dynamodb_client.put_item(\n            TableName=os.environ['TABLE_NAME'],\n            Item={\n                'execution_id': {'S': execution_id},\n                'SK': {'S': 'REPORT'},\n                'email': {'S': email},\n                'prompt': {'S': prompt},\n                'image': {'S': s3_file_path},\n               'result': technical_analysis\n            }\n        )\n\n        # Send message to SQS\n        response = sqs_client.send_message(\n            QueueUrl=os.environ['queue_url'],\n            MessageBody=json.dumps(event)\n        )\n\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({\n               'status': 'SUCCESS',\n                'db_item_id': execution_id,\n               'sqs_message_id': response['MessageId']\n            })\n        }\n\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }\n\n    except KeyError as e:\n        logging.error(e)\n        return {\n           'statusCode': 400,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Invalid input'})\n        }\n\n    except Exception as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "upload-s3",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "falta o recurso aws_s3_bucket"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda: create_upload_url.py]\n    B --> C[S3 Bucket]\n    C --> D[Lambda: create_upload_url.py]\n    D --> E[API Gateway]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "create_upload_url"
+        },
+        {
+          "service": "Amazon API Gateway",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "Amazon S3",
+          "resource_name": "S3 Bucket"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nvariable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"s3_bucket_name\" {\n  description = \"Name of the S3 bucket\"\n  type        = string\n}\n\nresource \"aws_lambda_function\" \"create_upload_url\" {\n  function_name = \"create_upload_url\"\n  runtime       = \"python3.12\"\n  handler       = \"create_upload_url.handler\"\n  role          = aws_iam_role.lambda_role.arn\n  filename      = \"create_upload_url.zip\"\n  source_code_hash = filebase64sha256(\"create_upload_url.py\")\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda_policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"s3:PutObject\",\n          \"s3:GetObject\",\n          \"s3:ListBucket\"\n        ]\n        Effect = \"Allow\"\n        Resource = [\n          \"arn:aws:s3:::${var.s3_bucket_name}\",\n          \"arn:aws:s3:::${var.s3_bucket_name}/*\"\n        ]\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"allow_api_gateway\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_upload_url.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api.execution_arn}/*/*\"\n}\n\nresource \"aws_api_gateway_rest_api\" \"api\" {\n  name        = \"create-upload-url-api\"\n  description = \"API to create upload URLs for S3\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  parent_id   = aws_api_gateway_rest_api.api.root_resource_id\n  path_part   = \"upload-url\"\n}\n\nresource \"aws_api_gateway_method\" \"method\" {\n  rest_api_id   = aws_api_gateway_rest_api.api.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"integration\" {\n  rest_api_id           = aws_api_gateway_rest_api.api.id\n  resource_id           = aws_api_gateway_resource.resource.id\n  http_method           = aws_api_gateway_method.method.http_method\n  integration_http_method = \"POST\"\n  type                  = \"AWS_PROXY\"\n  uri                   = aws_lambda_function.create_upload_url.invoke_arn\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api.id\n  stage_name  = \"prod\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"s3_bucket_name\" {\n  description = \"Name of the S3 bucket\"\n  type        = string\n}"
+        },
+        "python": {
+          "create_upload_url.py": "import os\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    s3_client = boto3.client('s3', region_name=os.environ['AWS_REGION'])\n    bucket_name = os.environ['s3_bucket_name']\n\n    try:\n        response = s3_client.create_presigned_post(\n            Bucket=bucket_name,\n            Key=event['key'],\n            Fields={\n                'acl': 'public-read'\n            },\n            Conditions=[\n                {\"acl\": 'public-read'}\n            ],\n            ExpiresIn=3600\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps(response, default=str)\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Failed to create presigned URL for S3 upload'})\n        }"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/orchestrator.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/pdf_mail_consumer/s3_service.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/pdf_mail_consumer/report_renderer.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "autenticacao",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "4 arquivos .py mas 0 aws_lambda_function",
+        "esperava 4 Lambdas, veio 0",
+        "falta o recurso aws_cognito_user_pool"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda (Create Note)]\n    A --> C[Lambda (Read Note)]\n    A --> D[Lambda (Update Note)]\n    A --> E[Lambda (Delete Note)]\n    B --> F[DynamoDB]\n    C --> F\n    D --> F\n    E --> F",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "API Gateway"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Create Note"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Read Note"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Update Note"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Delete Note"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "Notes Table"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"notes_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"id\"\n  attribute {\n    name = \"id\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"notes_api\" {\n  name        = \"notes-api\"\n  description = \"API for notes\"\n}\n\nresource \"aws_api_gateway_resource\" \"notes_resource\" {\n  rest_api_id = aws_api_gateway_rest_api.notes_api.id\n  parent_id   = aws_api_gateway_rest_api.notes_api.root_resource_id\n  path_part   = \"notes\"\n}\n\nresource \"aws_api_gateway_method\" \"notes_post\" {\n  rest_api_id   = aws_api_gateway_rest_api.notes_api.id\n  resource_id   = aws_api_gateway_resource.notes_resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"notes_post_integration\" {\n  rest_api_id = aws_api_gateway_rest_api.notes_api.id\n  resource_id = aws_api_gateway_resource.notes_resource.id\n  http_method = aws_api_gateway_method.notes_post.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.create_note.arn\n}\n\nresource \"aws_api_gateway_deployment\" \"notes_api_deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.notes_api.id\n  depends_on  = [aws_api_gateway_integration.notes_post_integration]\n}\n\nresource \"aws_lambda_permission\" \"notes_post_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_note.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.notes_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"notes_get_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.read_note.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.notes_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"notes_put_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.update_note.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.notes_api.execution_arn}/*/*\"\n}\n\nresource \"aws_lambda_permission\" \"notes_delete_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.delete_note.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn  = \"${aws_api_gateway_rest_api.notes_api.execution_arn}/*/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"The AWS region to deploy the resources\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"The name of the DynamoDB table\"\n  type        = string\n}"
+        },
+        "python": {
+          "create_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ['TABLE_NAME']\ndynamodb = boto3.resource('dynamodb')\ntable = dynamodb.Table(TABLE_NAME)\n\ndef lambda_handler(event, context):\n    try:\n        response = table.put_item(\n            Item={\n                'id': event['id'],\n                'content': event['content']\n            }\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Note created successfully'})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "read_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ['TABLE_NAME']\ndynamodb = boto3.resource('dynamodb')\ntable = dynamodb.Table(TABLE_NAME)\n\ndef lambda_handler(event, context):\n    try:\n        response = table.get_item(\n            Key={'id': event['id']}\n        )\n        if 'Item' in response:\n            return {\n               'statusCode': 200,\n                'headers': {\n                    'Content-Type': 'application/json'\n                },\n                'body': json.dumps(response['Item'])\n            }\n        else:\n            return {\n               'statusCode': 404,\n                'headers': {\n                    'Content-Type': 'application/json'\n                },\n                'body': json.dumps({'message': 'Note not found'})\n            }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "update_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ['TABLE_NAME']\ndynamodb = boto3.resource('dynamodb')\ntable = dynamodb.Table(TABLE_NAME)\n\ndef lambda_handler(event, context):\n    try:\n        response = table.update_item(\n            Key={'id': event['id']},\n            UpdateExpression='SET content = :val1',\n            ExpressionAttributeValues={':val1': event['content']},\n            ReturnValues='UPDATED_NEW'\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Note updated successfully', 'updated_item': response['Attributes']})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "delete_item.py": "import boto3\nfrom botocore.exceptions import ClientError\n\nTABLE_NAME = os.environ['TABLE_NAME']\ndynamodb = boto3.resource('dynamodb')\ntable = dynamodb.Table(TABLE_NAME)\n\ndef lambda_handler(event, context):\n    try:\n        response = table.delete_item(\n            Key={'id': event['id']}\n        )\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Note deleted successfully'})\n        }\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'message': 'Internal server error'})\n        }",
+          "requirements.txt": "boto3"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py"
+      ]
+    },
+    "passou": false
+  },
+  {
+    "id": "agendada",
+    "erro_api": null,
+    "erros": {
+      "python": [],
+      "regras_tf": [],
+      "consistencia": [
+        "falta o recurso aws_s3_bucket",
+        "falta o recurso aws_cloudwatch_event_rule"
+      ],
+      "terraform": [
+        "terraform não instalado"
+      ]
+    },
+    "saida": {
+      "analysis_date": "2026-09-28",
+      "mermaid_diagram": "graph TD;\n    A[API Gateway] --> B[Lambda - Report Adapter]\n    B --> C[DynamoDB]\n    B --> D[SQS]\n    D --> E[Lambda - PDF Mail Consumer]\n    E --> F[S3]",
+      "aws_services": [
+        {
+          "service": "AWS Lambda",
+          "resource_name": "Report Adapter"
+        },
+        {
+          "service": "AWS Lambda",
+          "resource_name": "PDF Mail Consumer"
+        },
+        {
+          "service": "Amazon DynamoDB",
+          "resource_name": "DynamoDB Table"
+        },
+        {
+          "service": "Amazon SQS",
+          "resource_name": "SQS Queue"
+        },
+        {
+          "service": "Amazon S3",
+          "resource_name": "S3 Bucket"
+        }
+      ],
+      "generated_code": {
+        "terraform": {
+          "main.tf": "provider \"aws\" {\n  region = var.region\n}\n\nresource \"aws_dynamodb_table\" \"dynamodb_table\" {\n  name           = var.table_name\n  billing_mode   = \"PAY_PER_REQUEST\"\n  hash_key       = \"execution_id\"\n  range_key      = \"SK\"\n  attribute {\n    name = \"execution_id\"\n    type = \"S\"\n  }\n  attribute {\n    name = \"SK\"\n    type = \"S\"\n  }\n}\n\nresource \"aws_api_gateway_rest_api\" \"api_gateway\" {\n  name        = \"api-gateway\"\n  description = \"API Gateway for Lambda functions\"\n}\n\nresource \"aws_api_gateway_resource\" \"resource\" {\n  rest_api_id = aws_api_gateway_rest_api.api_gateway.id\n  parent_id   = aws_api_gateway_rest_api.api_gateway.root_resource_id\n  path_part   = \"report\"\n}\n\nresource \"aws_api_gateway_method\" \"method\" {\n  rest_api_id   = aws_api_gateway_rest_api.api_gateway.id\n  resource_id   = aws_api_gateway_resource.resource.id\n  http_method   = \"POST\"\n  authorization = \"NONE\"\n}\n\nresource \"aws_api_gateway_integration\" \"integration\" {\n  rest_api_id = aws_api_gateway_rest_api.api_gateway.id\n  resource_id = aws_api_gateway_resource.resource.id\n  http_method = aws_api_gateway_method.method.http_method\n  type        = \"AWS_PROXY\"\n  integration_http_method = \"POST\"\n  uri         = aws_lambda_function.lambda_function.invoke_arn\n}\n\nresource \"aws_api_gateway_deployment\" \"deployment\" {\n  rest_api_id = aws_api_gateway_rest_api.api_gateway.id\n  depends_on  = [aws_api_gateway_integration.integration]\n}\n\nresource \"aws_lambda_function\" \"lambda_function\" {\n  function_name = \"report-adapter\"\n  role          = aws_iam_role.lambda_role.arn\n  handler       = \"report_adapter.handler\"\n  runtime       = \"python3.12\"\n  filename      = \"path/to/report_adapter.zip\"\n  environment {\n    variables = {\n      TABLE_NAME = var.table_name\n    }\n  }\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda-role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_iam_role_policy\" \"lambda_policy\" {\n  name = \"lambda-policy\"\n  role = aws_iam_role.lambda_role.id\n\n  policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = [\n          \"dynamodb:PutItem\",\n          \"dynamodb:GetItem\",\n          \"sqs:SendMessage\"\n        ]\n        Effect = \"Allow\"\n        Resource = [\n          aws_dynamodb_table.dynamodb_table.arn,\n          aws_sqs_queue.sqs_queue.arn\n        ]\n      }\n    ]\n  })\n}\n\nresource \"aws_sqs_queue\" \"sqs_queue\" {\n  name = \"sqs-queue\"\n}\n\nresource \"aws_lambda_permission\" \"lambda_permission\" {\n  statement_id  = \"AllowAPIGatewayInvoke\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.lambda_function.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"${aws_api_gateway_rest_api.api_gateway.execution_arn}/*/*\"\n}",
+          "variables.tf": "variable \"region\" {\n  description = \"AWS region\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"Name of the DynamoDB table\"\n  type        = string\n}\n"
+        },
+        "python": {
+          "report_adapter.py": "import json\nimport os\nimport boto3\nfrom botocore.exceptions import ClientError\n\ns3_client = boto3.client('s3')\ndynamodb_client = boto3.client('dynamodb')\nsqs_client = boto3.client('sqs')\n\ndef lambda_handler(event, context):\n    try:\n        execution_id = event['execution_id']\n        email = event['email']\n        prompt = event['prompt']\n        s3_file_path = event['s3_file_path']\n        technical_analysis = event['technical_analysis']\n\n        table_name = os.environ['TABLE_NAME']\n        queue_url = os.environ['SQS_PDF_MAIL_QUEUE_URL']\n\n        dynamodb_item = {\n            'PK': {'S': execution_id},\n            'SK': {'S': 'REPORT'},\n            'email': {'S': email},\n            'prompt': {'S': prompt},\n            'image': {'S': s3_file_path},\n           'result': technical_analysis\n        }\n\n        dynamodb_client.put_item(\n            TableName=table_name,\n            Item=dynamodb_item\n        )\n\n        sqs_client.send_message(\n            QueueUrl=queue_url,\n            MessageBody=json.dumps(event)\n        )\n\n        return {\n           'statusCode': 200,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({\n               'status': 'SUCCESS',\n                'db_item_id': execution_id,\n               'sqs_message_id': sqs_client.send_message(QueueUrl=queue_url, MessageBody=json.dumps(event))['MessageId']\n            })\n        }\n\n    except ClientError as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }\n\n    except KeyError as e:\n        logging.error(e)\n        return {\n           'statusCode': 400,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Bad Request'})\n        }\n\n    except Exception as e:\n        logging.error(e)\n        return {\n           'statusCode': 500,\n            'headers': {\n                'Content-Type': 'application/json'\n            },\n            'body': json.dumps({'error': 'Internal Server Error'})\n        }"
+        }
+      },
+      "rag_references": [
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/handler.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/orchestrator.py",
+        "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py"
+      ]
+    },
+    "passou": false
+  }
+]

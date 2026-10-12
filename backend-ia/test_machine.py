@@ -12,7 +12,7 @@ headers = {"X-API-Key": API_SECRET, "Content-Type": "application/json"}
 
 # Usamos um dicionário nativo do Python, então não precisamos brigar com aspas!
 payload = {
-    "prompt": "Gere a infraestrutura Terraform e o código Python para esta arquitetura para um projeto to do list"
+    "prompt": "Aplicativo de lista de tarefas (to-do list). O usuário pode criar uma tarefa, listar todas as tarefas, consultar uma tarefa por id, atualizar uma tarefa e remover uma tarefa."
 }
 
 print("Enviando requisição para a API...")

@@ -51,7 +51,7 @@ def salvar_no_banco_vetorial(
 def orquestrar_ingestao_de_codigo():
     # Configurações do pipeline
     pasta_scripts = "/mnt/d/codigo/auto-arch-analyzer/backend"
-    pasta_db = "./chroma_db_local"
+    pasta_db = "../chroma_db_local"
 
     # Execução do pipeline ETL
     docs_brutos = carregar_arquivos_python(pasta_scripts)
