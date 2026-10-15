@@ -1,5 +1,6 @@
+from typing import Dict, List
+
 from pydantic import BaseModel, Field
-from typing import List, Dict
 
 
 class PayloadRequisicao(BaseModel):
@@ -8,28 +9,28 @@ class PayloadRequisicao(BaseModel):
 
 class AWSService(BaseModel):
     service: str = Field(
-        description="Nome do serviço AWS (ex: AWS Lambda, Amazon API Gateway)"
+        description="AWS service name (e.g., AWS Lambda, Amazon API Gateway)"
     )
-    resource_name: str = Field(description="Nome do recurso na arquitetura")
+    resource_name: str = Field(description="Resource name in the architecture")
 
 
 class GeneratedCode(BaseModel):
     terraform: Dict[str, str] = Field(
-        description="Dicionário onde as chaves são 'main.tf' e 'variables.tf', e os valores são os scripts HCL completos gerados linha por linha."
+        description="Dictionary with 'main.tf' and 'variables.tf' as keys and complete generated HCL scripts as values."
     )
     python: Dict[str, str] = Field(
-        description="Dicionário onde as chaves são os nomes dos arquivos (ex: 'create_item.py', 'requirements.txt') e os valores são os scripts Python completos."
+        description="Dictionary with file names (e.g., 'create_item.py', 'requirements.txt') as keys and complete Python scripts as values."
     )
 
 
 class ArquiteturaAWS(BaseModel):
-    analysis_date: str = Field(description="Data da análise no formato YYYY-MM-DD")
+    analysis_date: str = Field(description="Analysis date in YYYY-MM-DD format")
     mermaid_diagram: str = Field(
-        description="O código completo do diagrama mermaid refletindo o fluxo de microsserviços"
+        description="Complete Mermaid diagram code reflecting the microservices flow"
     )
     aws_services: List[AWSService] = Field(
-        description="Lista de serviços AWS utilizados nesta arquitetura"
+        description="List of AWS services used in this architecture"
     )
     generated_code: GeneratedCode = Field(
-        description="Todos os códigos de infraestrutura e aplicação gerados"
+        description="All generated infrastructure and application code"
     )

@@ -1,0 +1,4 @@
+-r requirements.txt
+requests==2.34.2
+pyflakes==4.0.3
+langchain-text-splitters==1.1.3

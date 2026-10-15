@@ -1,9 +1,10 @@
 import json
+
 from json_repair import repair_json
 
 
 def escape_json_control_chars(texto: str) -> str:
-    """Escapa quebras de linha literais inseridas em strings pelo modelo."""
+    """Escape literal line breaks inserted into strings by the model."""
     resultado = []
     dentro_string = False
     escapado = False
@@ -27,7 +28,7 @@ def escape_json_control_chars(texto: str) -> str:
 
 
 def decodificar_resposta_modelo(resposta_util: str):
-    """Tenta decodificar o JSON e aplica reparos automáticos em caso de falha."""
+    """Decode JSON and apply automatic repairs if parsing fails."""
     try:
         return json.loads(resposta_util)
     except json.JSONDecodeError as erro:
@@ -39,6 +40,6 @@ def decodificar_resposta_modelo(resposta_util: str):
                 return json.loads(repair_json(resposta_reparada))
             except (TypeError, ValueError, json.JSONDecodeError) as erro_final:
                 raise ValueError(
-                    "O modelo retornou JSON inválido ou incompleto "
-                    f"(original: {erro}; após reparos: {erro_reparacao})."
+                    "The model returned invalid or incomplete JSON "
+                    f"(original: {erro}; after repairs: {erro_reparacao})."
                 ) from erro_final

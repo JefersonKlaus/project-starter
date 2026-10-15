@@ -1,59 +1,67 @@
-import os
+from pathlib import Path
 from typing import List
-from langchain_core.documents import Document
+
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
-from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_core.documents import Document
+from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
 
-# 1. Extract
+# Step 1: read the source code to build the initial documents.
 def carregar_arquivos_python(diretorio: str) -> List[Document]:
-    print(f"Lendo arquivos .py do diretório: {diretorio}...")
+    print(f"Reading Python files from directory: {diretorio}...")
     loader = DirectoryLoader(diretorio, glob="**/*.py", loader_cls=TextLoader)
     documentos = loader.load()
-    print(f"Foram encontrados {len(documentos)} arquivos Python.")
+    print(f"Found {len(documentos)} Python files.")
     return documentos
 
 
-# 2. Transform
+# Step 2: split large files into chunks to improve vector retrieval.
 def dividir_codigo_python(
-    documentos_brutos: List[Document], chunk_size: int = 1000, chunk_overlap: int = 200
+    documentos_brutos: List[Document],
+    chunk_size: int = 1000,
+    chunk_overlap: int = 200,
 ) -> List[Document]:
-    print("Dividindo o código...")
+    print("Splitting code into chunks...")
     text_splitter = RecursiveCharacterTextSplitter.from_language(
         language=Language.PYTHON, chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
     documentos_processados = text_splitter.split_documents(documentos_brutos)
     print(
-        f"Os arquivos foram divididos em {len(documentos_processados)} blocos (chunks)."
+        f"The files were split into {len(documentos_processados)} chunks."
     )
     return documentos_processados
 
 
-# 3. Load
+# Step 3: load the chunks into the vector database for semantic search.
 def salvar_no_banco_vetorial(
     documentos: List[Document],
     pasta_db: str,
     modelo_embedding: str = "all-MiniLM-L6-v2",
 ) -> None:
-    print(f"Carregando o modelo de embeddings ({modelo_embedding})...")
+    print(f"Loading embedding model ({modelo_embedding})...")
     embeddings = HuggingFaceEmbeddings(model_name=modelo_embedding)
 
-    print("Gerando coordenadas matemáticas e salvando no ChromaDB...")
+    print("Generating embeddings and saving to ChromaDB...")
     Chroma.from_documents(
         documents=documentos, embedding=embeddings, persist_directory=pasta_db
     )
-    print(f"✅ Ingestão de código finalizada! Banco salvo na pasta: {pasta_db}")
+    print(f"✅ Code ingestion finished. Database saved in: {pasta_db}")
 
 
-# Controller
-def orquestrar_ingestao_de_codigo():
-    # Configurações do pipeline
-    pasta_scripts = "/mnt/d/codigo/auto-arch-analyzer/backend"
-    pasta_db = "../chroma_db_local"
+# Orchestrates the ETL pipeline from the project directory without relying on machine-specific paths.
+def orquestrar_ingestao_de_codigo(
+    pasta_scripts: str | None = None,
+    pasta_db: str | None = None,
+):
+    base_dir = Path(__file__).resolve().parents[1]
 
-    # Execução do pipeline ETL
+    if pasta_scripts is None:
+        pasta_scripts = str(base_dir / "api")
+    if pasta_db is None:
+        pasta_db = str(base_dir / "chroma_db_local")
+
     docs_brutos = carregar_arquivos_python(pasta_scripts)
     docs_processados = dividir_codigo_python(docs_brutos)
     salvar_no_banco_vetorial(docs_processados, pasta_db)

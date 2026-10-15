@@ -1,26 +1,26 @@
-# API FastAPI local
+# Local FastAPI API
 
-A API está definida em [main.py](main.py) e expõe o endpoint `POST /analisar`.
+The API is defined in [main.py](main.py) and exposes the `POST /analisar` endpoint.
 
-## Pré-requisitos
+## Prerequisites
 
 - Python 3.10+
-- Ambiente virtual na raiz do projeto: `project-starter/.venv`
-- Dependências instaladas com [requirements.txt](requirements.txt)
-- `backend-ia/.env` contendo `GROQ_API_KEY` e `API_SECRET`
+- Virtual environment at the project root: `project-starter/.venv`
+- Dependencies installed from [requirements-dev.txt](requirements-dev.txt)
+- `backend-ia/.env` containing `GROQ_API_KEY` and `API_SECRET`
 
-`GROQ_API_KEY` é obrigatória: a API usa o modelo hospedado na Groq para gerar
-as arquiteturas. Sem essa variável, a aplicação não conclui o startup. O
-`API_SECRET` protege o endpoint com o header `X-API-Key`.
+`GROQ_API_KEY` is required: the API uses a model hosted by Groq to generate
+architectures. Without this variable, the application cannot complete startup.
+`API_SECRET` protects the endpoint through the `X-API-Key` header.
 
-Na raiz do projeto, instale as dependências uma vez:
+From the project root, install the dependencies once:
 
 ```bash
 source .venv/bin/activate
-python -m pip install -r backend-ia/api/requirements.txt
+python -m pip install -r backend-ia/api/requirements-dev.txt
 ```
 
-## Rodar localmente
+## Run locally
 
 ```bash
 cd /home/klaus/code/project-starter/backend-ia/api
@@ -28,41 +28,41 @@ source ../../.venv/bin/activate
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Para recarregar automaticamente durante o desenvolvimento:
+To reload automatically during development:
 
 ```bash
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-O modelo e o banco vetorial são carregados no startup; a primeira inicialização
-pode demorar. Acesse `http://127.0.0.1:8000/docs` para a documentação Swagger.
+The model and vector database are loaded at startup; the first initialization
+may take some time. Open `http://127.0.0.1:8000/docs` for the Swagger documentation.
 
 ## Endpoint
 
-O corpo é JSON, não `multipart/form-data`:
+The request body is JSON, not `multipart/form-data`:
 
 ```json
 {
-  "prompt": "Gere um aplicativo TO DO list sem autenticação via Cognito"
+  "prompt": "Generate a TO DO list application without Cognito authentication"
 }
 ```
 
-Exemplo com `curl`:
+Example using `curl`:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/analisar \
   -H "Content-Type: application/json" \
   -H "X-API-Key: SUA_API_SECRET" \
-  -d '{"prompt":"Gere um aplicativo TO DO list sem autenticação via Cognito"}'
+  -d '{"prompt":"Generate a TO DO list application without Cognito authentication"}'
 ```
 
-O script recomendado para o fluxo local é
-[`../test_machine.py`](../test_machine.py). Ele lê `API_SECRET` do `.env`, envia
-o prompt em JSON e salva a resposta como `backend-ia/resultado_arquitetura.json`.
+The recommended script for the local workflow is
+[`../test_machine.py`](../test_machine.py). It reads `API_SECRET` from `.env`, sends
+the prompt as JSON, and saves the response as `backend-ia/resultado_arquitetura.json`.
 
-## Instalar o cloudflared no Linux
+## Install cloudflared on Linux
 
-Se o `cloudflared` ainda não estiver instalado:
+If `cloudflared` is not installed yet:
 
 ```bash
 curl -L --output cloudflared.deb \
@@ -70,13 +70,13 @@ curl -L --output cloudflared.deb \
 sudo dpkg -i cloudflared.deb
 ```
 
-## Expor com cloudflared (opcional)
+## Expose with cloudflared (optional)
 
-Com a API local rodando, abra outro terminal e execute:
+With the local API running, open another terminal and run:
 
 ```bash
 cloudflared tunnel --url http://127.0.0.1:8000 --metrics localhost:45678
 ```
 
-Não coloque chaves reais em comandos, documentação ou commits. Se uma chave foi
-exposta, revogue-a e gere outra no provedor correspondente.
+Do not put real keys in commands, documentation, or commits. If a key has been
+exposed, revoke it and generate a new one with the corresponding provider.
