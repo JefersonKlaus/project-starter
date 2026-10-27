@@ -7,29 +7,29 @@ from fastapi import FastAPI, HTTPException, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from machine import generate_architecture_script, load_text_model
-from models import PayloadRequisicao
+from models import RequestPayload
 
-from rag import MotorRAG
+from rag import RAGEngine
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 API_SECRET = os.environ.get("API_SECRET")
 
 # Global AI state
-ia_state = {}
+ai_state = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Run when the server starts
     print("Starting heavy services (LLM models and vector database)...")
-    ia_state["rag"] = MotorRAG()
+    ai_state["rag"] = RAGEngine()
 
     llm = load_text_model()
-    ia_state["llm"] = llm
+    ai_state["llm"] = llm
 
     yield
-    ia_state.clear()
+    ai_state.clear()
 
 
 app = FastAPI(title="Cloud Specialist - RAG and Code Engine", lifespan=lifespan)
@@ -40,45 +40,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-header_chave_api = APIKeyHeader(name="X-API-Key", auto_error=True)
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 
-def validar_api_key(chave_enviada: str = Security(header_chave_api)):
-    if chave_enviada != API_SECRET:
+def validate_api_key(provided_key: str = Security(api_key_header)):
+    if provided_key != API_SECRET:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Access denied: invalid API key",
         )
-    return chave_enviada
+    return provided_key
 
 
-@app.post("/analisar", dependencies=[Security(validar_api_key)])
-async def gerar_arquitetura(payload: PayloadRequisicao):
+@app.post("/create", dependencies=[Security(validate_api_key)])
+async def create_architecture(payload: RequestPayload):
     try:
-        motor_rag = ia_state["rag"]
-        llm = ia_state["llm"]
+        rag_engine = ai_state["rag"]
+        llm = ai_state["llm"]
 
         # Search for reference implementations in the vector database
-        contexto_rag, documentos = motor_rag.buscar_gabaritos(payload.prompt)
+        rag_context, documents = rag_engine.find_references(payload.prompt)
 
         # Unified generation and extraction through LangChain
-        resposta_final = generate_architecture_script(
-            llm=llm, prompt_text=payload.prompt, contexto_rag=contexto_rag
+        final_response = generate_architecture_script(
+            llm=llm, prompt_text=payload.prompt, rag_context=rag_context
         )
 
-        if isinstance(resposta_final, list) and len(resposta_final) > 0:
-            resposta_final = resposta_final[0]
-        if not isinstance(resposta_final, dict):
+        if isinstance(final_response, list) and len(final_response) > 0:
+            final_response = final_response[0]
+        if not isinstance(final_response, dict):
             raise ValueError(
                 f"Unexpected JSON format from the model. Type: {type(resposta_final).__name__}"
             )
 
         # Add RAG references to the response for auditing
-        resposta_final["rag_references"] = [
-            doc.metadata.get("source", "unknown") for doc in documentos
+        final_response["rag_references"] = [
+            doc.metadata.get("source", "unknown") for doc in documents
         ]
 
-        return resposta_final
+        return final_response
 
     except HTTPException:
         raise

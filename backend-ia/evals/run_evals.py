@@ -6,70 +6,70 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
-from validators import VALIDADORES
+from validators import VALIDATORS
 
 load_dotenv()
-URL = os.getenv("EVAL_URL", "http://localhost:8000/analisar")
+URL = os.getenv("EVAL_URL", "http://localhost:8000/create")
 API_KEY = os.getenv("API_SECRET")
-PASTA = Path(__file__).parent
+EVALS_DIR = Path(__file__).parent
 
 
-def rodar_caso(caso):
-    registro = {"id": caso["id"], "erro_api": None, "erros": {}}
+def run_case(case):
+    record = {"id": case["id"], "erro_api": None, "erros": {}}
     try:
-        r = requests.post(
+        response = requests.post(
             URL,
-            json={"prompt": caso["prompt"]},
+            json={"prompt": case["prompt"]},
             headers={"X-API-Key": API_KEY},
             timeout=600,
         )
-        r.raise_for_status()
-        saida = r.json()
+        response.raise_for_status()
+        output = response.json()
     except Exception as e:
-        registro["erro_api"] = str(e)
-        registro["passou"] = False
-        return registro
+        record["erro_api"] = str(e)
+        record["passou"] = False
+        return record
 
-    registro["saida"] = saida
-    for nome, validador in VALIDADORES.items():
+    record["saida"] = output
+    for name, validator in VALIDATORS.items():
         try:
-            registro["erros"][nome] = validador(saida, caso["esperado"])
+            record["erros"][name] = validator(output, case["esperado"])
         except Exception as e:
-            registro["erros"][nome] = [f"validador quebrou: {e!r}"]
+            record["erros"][name] = [f"validator failed: {e!r}"]
 
-    registro["passou"] = all(not erros for erros in registro["erros"].values())
-    return registro
+    record["passou"] = all(not errors for errors in record["erros"].values())
+    return record
 
 
 def main():
-    casos = json.loads((PASTA / "prompts.json").read_text(encoding="utf-8"))
-    resultados = []
+    cases = json.loads((EVALS_DIR / "prompts.json").read_text(encoding="utf-8"))
+    results = []
 
-    for caso in casos:
-        print(f"Rodando {caso['id']}...", flush=True)
-        registro = rodar_caso(caso)
-        resultados.append(registro)
-        print("  ->", "PASSOU" if registro["passou"] else "FALHOU")
-        if registro["erro_api"]:
-            print("     erro da API:", registro["erro_api"])
-        for nome, erros in registro["erros"].items():
-            for erro in erros:
-                print(f"     [{nome}] {erro}")
+    for case in cases:
+        print(f"Running {case['id']}...", flush=True)
+        record = run_case(case)
+        results.append(record)
+        print("  ->", "PASSED" if record["passou"] else "FAILED")
+        if record["erro_api"]:
+            print("     API error:", record["erro_api"])
+        for name, errors in record["erros"].items():
+            for error in errors:
+                print(f"     [{name}] {error}")
 
-    total = len(resultados)
-    aprovados = sum(r["passou"] for r in resultados)
-    print(f"\nCasos aprovados: {aprovados}/{total}")
-    for nome in VALIDADORES:
-        ok = sum(1 for r in resultados if r["erros"].get(nome) == [])
-        print(f"  {nome}: {ok}/{total}")
+    total = len(results)
+    passed = sum(result["passou"] for result in results)
+    print(f"\nPassed cases: {passed}/{total}")
+    for name in VALIDATORS:
+        ok = sum(1 for result in results if result["erros"].get(name) == [])
+        print(f"  {name}: {ok}/{total}")
 
-    pasta_saida = PASTA / "results"
-    pasta_saida.mkdir(exist_ok=True)
-    arquivo = pasta_saida / f"{datetime.now():%Y-%m-%d_%H%M}.json"
-    arquivo.write_text(
-        json.dumps(resultados, ensure_ascii=False, indent=2), encoding="utf-8"
+    results_dir = EVALS_DIR / "results"
+    results_dir.mkdir(exist_ok=True)
+    result_file = results_dir / f"{datetime.now():%Y-%m-%d_%H%M}.json"
+    result_file.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\nDetalhes salvos em {arquivo}")
+    print(f"\nDetails saved to {result_file}")
 
 
 if __name__ == "__main__":

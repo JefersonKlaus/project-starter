@@ -1,62 +1,62 @@
 [
   {
     "id": "crud-basico",
-    "prompt": "API CRUD de itens com DynamoDB",
+    "prompt": "CRUD API for items with DynamoDB",
     "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
     "id": "crud-basico-variacao",
-    "prompt": "Preciso de endpoints para criar, consultar, editar e remover produtos, guardando no DynamoDB",
+    "prompt": "I need endpoints to create, retrieve, edit, and delete products stored in DynamoDB",
     "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "so-leitura",
-    "prompt": "API somente leitura para listar e buscar produtos",
+    "id": "read-only",
+    "prompt": "Read-only API to list and retrieve products",
     "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "so-criacao",
-    "prompt": "API com um único endpoint para cadastrar clientes",
+    "id": "create-only",
+    "prompt": "API with a single endpoint to create customers",
     "esperado": { "lambdas": 1, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "so-exclusao",
-    "prompt": "API com um único endpoint para excluir pedidos pelo id",
+    "id": "delete-only",
+    "prompt": "API with a single endpoint to delete orders by ID",
     "esperado": { "lambdas": 1, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "duas-entidades",
-    "prompt": "API CRUD completa para clientes e para pedidos, cada um com sua tabela",
+    "id": "two-entities",
+    "prompt": "Complete CRUD API for customers and orders, each with its own table",
     "esperado": { "lambdas": 8, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "listar-e-criar",
-    "prompt": "API para listar tarefas e criar novas tarefas",
+    "id": "list-and-create",
+    "prompt": "API to list tasks and create new tasks",
     "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "atualizar-status",
-    "prompt": "API com um endpoint para buscar um pedido e outro para atualizar o status do pedido",
+    "id": "update-status",
+    "prompt": "API with one endpoint to retrieve an order and another to update its status",
     "esperado": { "lambdas": 2, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "fila-sqs",
-    "prompt": "API que recebe um pedido, coloca em uma fila SQS, e uma Lambda consumidora grava no DynamoDB",
+    "id": "sqs-queue",
+    "prompt": "API that receives an order, places it in an SQS queue, and a consumer Lambda stores it in DynamoDB",
     "esperado": { "lambdas": 2, "recursos": ["aws_sqs_queue", "aws_dynamodb_table", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "upload-s3",
-    "prompt": "API que gera URL pré-assinada para upload de arquivos em um bucket S3",
+    "id": "s3-upload",
+    "prompt": "API that generates a presigned URL to upload files to an S3 bucket",
     "esperado": { "lambdas": 1, "recursos": ["aws_s3_bucket", "aws_api_gateway_rest_api"] }
   },
   {
-    "id": "autenticacao",
-    "prompt": "API CRUD de notas protegida por autenticação com Cognito",
+    "id": "authentication",
+    "prompt": "CRUD API for notes protected by Cognito authentication",
     "esperado": { "lambdas": 4, "recursos": ["aws_dynamodb_table", "aws_api_gateway_rest_api", "aws_cognito_user_pool"] }
   },
   {
-    "id": "agendada",
-    "prompt": "Uma Lambda que roda todo dia às 8h e grava um relatório em um bucket S3",
+    "id": "scheduled",
+    "prompt": "A Lambda that runs every day at 8 AM and stores a report in an S3 bucket",
     "esperado": { "lambdas": 1, "recursos": ["aws_s3_bucket", "aws_cloudwatch_event_rule"] }
   }
 ]

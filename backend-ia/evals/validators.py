@@ -1,7 +1,7 @@
-"""Validadores: cada um recebe (resultado, esperado) e devolve uma lista de erros.
-Lista vazia = passou.
+"""Validators: each one receives (result, expected) and returns a list of errors.
+An empty list means the result passed.
 
-Para adicionar um validador novo: escreva a função e registre em VALIDADORES.
+To add a new validator: write the function and register it in VALIDATORS.
 """
 import ast
 import io
@@ -15,132 +15,132 @@ from pyflakes import reporter as pyflakes_reporter
 
 
 # ---------------------------------------------------------------- helpers
-def _terraform(resultado):
-    return "\n".join(resultado["generated_code"]["terraform"].values())
+def _terraform(result):
+    return "\n".join(result["generated_code"]["terraform"].values())
 
 
-def _arquivos_py(resultado):
+def _python_files(result):
     return {
-        nome: codigo
-        for nome, codigo in resultado["generated_code"]["python"].items()
-        if nome.endswith(".py")
+        name: code
+        for name, code in result["generated_code"]["python"].items()
+        if name.endswith(".py")
     }
 
 
 # ---------------------------------------------------------------- python
-def validar_python(resultado, esperado=None):
-    """Sintaxe válida e regras do prompt (sem roteamento interno, retorno em dict,
-    configuração via os.environ)."""
-    erros = []
-    for nome, codigo in _arquivos_py(resultado).items():
+def validate_python(result, expected=None):
+    """Valid syntax and prompt rules (no internal routing, dict response,
+    configuration through os.environ)."""
+    errors = []
+    for name, code in _python_files(result).items():
         try:
-            ast.parse(codigo)
+            ast.parse(code)
         except SyntaxError as e:
-            erros.append(f"{nome}: erro de sintaxe na linha {e.lineno}")
+            errors.append(f"{name}: syntax error on line {e.lineno}")
             continue
-        if "httpMethod" in codigo:
-            erros.append(f"{nome}: roteamento interno (regra 2)")
-        if re.search(r"return\s+json\.dumps\(", codigo):
-            erros.append(f"{nome}: retorna string em vez de dict (API Gateway proxy)")
-        if re.search(r"event\[\s*['\"](region|table_name)['\"]\s*\]", codigo):
-            erros.append(f"{nome}: lê region/table_name do event (use os.environ)")
-    return erros
+        if "httpMethod" in code:
+            errors.append(f"{name}: internal routing (rule 2)")
+        if re.search(r"return\s+json\.dumps\(", code):
+            errors.append(f"{name}: returns a string instead of a dict (API Gateway proxy)")
+        if re.search(r"event\[\s*['\"](region|table_name)['\"]\s*\]", code):
+            errors.append(f"{name}: reads region/table_name from the event (use os.environ)")
+    return errors
 
 
-def validar_pyflakes(resultado, esperado=None):
-    """Pega nomes indefinidos (ex: os/logging sem import), que passam no ast.parse
-    mas quebram com NameError na primeira invocação."""
-    erros = []
-    for nome, codigo in _arquivos_py(resultado).items():
+def validate_pyflakes(result, expected=None):
+    """Finds undefined names (for example, os/logging without an import), which pass
+    ast.parse but fail with NameError on the first invocation."""
+    errors = []
+    for name, code in _python_files(result).items():
         try:
-            ast.parse(codigo)
+            ast.parse(code)
         except SyntaxError:
-            continue  # já reportado por validar_python
-        saida = io.StringIO()
-        rep = pyflakes_reporter.Reporter(saida, saida)
-        pyflakes_api.check(codigo, nome, rep)
-        for linha in saida.getvalue().splitlines():
-            if "undefined name" in linha:
-                erros.append(linha)
-    return erros
+            continue  # Already reported by validate_python.
+        output = io.StringIO()
+        reporter = pyflakes_reporter.Reporter(output, output)
+        pyflakes_api.check(code, name, reporter)
+        for line in output.getvalue().splitlines():
+            if "undefined name" in line:
+                errors.append(line)
+    return errors
 
 
 # ------------------------------------------------------------- terraform
-def validar_terraform_nao_vazio(resultado, esperado=None):
-    """Evita que os outros validadores aprovem 'no vazio'."""
-    n = len(re.findall(r'^\s*resource\s+"', _terraform(resultado), re.M))
-    return [] if n >= 3 else [f"terraform tem só {n} recursos"]
+def validate_terraform_non_empty(result, expected=None):
+    """Prevents the other validators from approving an empty result."""
+    count = len(re.findall(r'^\s*resource\s+"', _terraform(result), re.M))
+    return [] if count >= 3 else [f"terraform has only {count} resources"]
 
 
-def validar_terraform_regras(resultado, esperado=None):
-    tf = _terraform(resultado)
-    erros = []
+def validate_terraform_rules(result, expected=None):
+    tf = _terraform(result)
+    errors = []
     if re.search(r'source_arn\s*=\s*"\*"', tf):
-        erros.append('source_arn = "*" (permissão aberta demais)')
+        errors.append('source_arn = "*" (permission is too broad)')
     runtimes = set(re.findall(r'runtime\s*=\s*"python([\d.]+)"', tf))
     for runtime in sorted(runtimes):
-        versao = tuple(int(x) for x in runtime.split("."))
-        if versao < (3, 10):
-            erros.append(f"runtime python{runtime} descontinuado")
-    return erros
+        version = tuple(int(x) for x in runtime.split("."))
+        if version < (3, 10):
+            errors.append(f"python{runtime} runtime is deprecated")
+    return errors
 
 
-def validar_consistencia(resultado, esperado):
-    tf = _terraform(resultado)
-    n_py = len(_arquivos_py(resultado))
-    n_tf = len(re.findall(r'resource\s+"aws_lambda_function"', tf))
-    n_roles = len(re.findall(r'resource\s+"aws_iam_role"', tf))
-    n_perm = len(re.findall(r'resource\s+"aws_lambda_permission"', tf))
-    erros = []
-    if n_py != n_tf:
-        erros.append(f"{n_py} arquivos .py mas {n_tf} aws_lambda_function")
-    if n_tf != esperado["lambdas"]:
-        erros.append(f"esperava {esperado['lambdas']} Lambdas, veio {n_tf}")
-    if n_roles < n_tf:
-        erros.append(f"{n_roles} roles para {n_tf} Lambdas (regra 4)")
-    if n_perm < n_tf:
-        erros.append(f"{n_perm} permissions para {n_tf} Lambdas (regra 4)")
-    for recurso in esperado.get("recursos", []):
-        if f'"{recurso}"' not in tf:
-            erros.append(f"falta o recurso {recurso}")
-    return erros
+def validate_consistency(result, expected):
+    tf = _terraform(result)
+    python_count = len(_python_files(result))
+    terraform_count = len(re.findall(r'resource\s+"aws_lambda_function"', tf))
+    role_count = len(re.findall(r'resource\s+"aws_iam_role"', tf))
+    permission_count = len(re.findall(r'resource\s+"aws_lambda_permission"', tf))
+    errors = []
+    if python_count != terraform_count:
+        errors.append(f"{python_count} .py files but {terraform_count} aws_lambda_function resources")
+    if terraform_count != expected["lambdas"]:
+        errors.append(f"expected {expected['lambdas']} Lambdas, got {terraform_count}")
+    if role_count < terraform_count:
+        errors.append(f"{role_count} roles for {terraform_count} Lambdas (rule 4)")
+    if permission_count < terraform_count:
+        errors.append(f"{permission_count} permissions for {terraform_count} Lambdas (rule 4)")
+    for resource in expected.get("recursos", []):
+        if f'"{resource}"' not in tf:
+            errors.append(f"missing resource {resource}")
+    return errors
 
 
-def validar_rotas(resultado, esperado):
-    """Cada rota do API Gateway precisa de method + integration apontando para uma
-    Lambda. Só roda quando o caso espera aws_api_gateway_rest_api.
+def validate_routes(result, expected):
+    """Each API Gateway route needs a method + integration pointing to a
+    Lambda. Runs only when the case expects aws_api_gateway_rest_api.
 
-    Use "rotas" em prompts.json quando nem toda Lambda tem rota
-    (ex: consumidor de fila). Padrão: nº de Lambdas esperadas."""
-    if "aws_api_gateway_rest_api" not in esperado.get("recursos", []):
+    Use "rotas" in prompts.json when not every Lambda has a route
+    (for example, a queue consumer). Default: expected number of Lambdas."""
+    if "aws_api_gateway_rest_api" not in expected.get("recursos", []):
         return []
-    tf = _terraform(resultado)
-    rotas_esperadas = esperado.get("rotas", esperado["lambdas"])
-    n_methods = len(re.findall(r'resource\s+"aws_api_gateway_method"', tf))
-    n_integ = len(re.findall(r'resource\s+"aws_api_gateway_integration"', tf))
-    lambdas_ligadas = set(
+    tf = _terraform(result)
+    expected_routes = expected.get("rotas", expected["lambdas"])
+    method_count = len(re.findall(r'resource\s+"aws_api_gateway_method"', tf))
+    integration_count = len(re.findall(r'resource\s+"aws_api_gateway_integration"', tf))
+    connected_lambdas = set(
         re.findall(r"uri\s*=\s*aws_lambda_function\.(\w+)\.invoke_arn", tf)
     )
-    erros = []
-    if n_methods < rotas_esperadas:
-        erros.append(f"{n_methods} aws_api_gateway_method para {rotas_esperadas} rotas")
-    if n_integ < rotas_esperadas:
-        erros.append(
-            f"{n_integ} aws_api_gateway_integration para {rotas_esperadas} rotas"
+    errors = []
+    if method_count < expected_routes:
+        errors.append(f"{method_count} aws_api_gateway_method resources for {expected_routes} routes")
+    if integration_count < expected_routes:
+        errors.append(
+            f"{integration_count} aws_api_gateway_integration resources for {expected_routes} routes"
         )
-    if len(lambdas_ligadas) < rotas_esperadas:
-        erros.append(
-            f"só {len(lambdas_ligadas)} Lambdas ligadas ao API Gateway "
-            f"(esperava {rotas_esperadas})"
+    if len(connected_lambdas) < expected_routes:
+        errors.append(
+            f"only {len(connected_lambdas)} Lambdas connected to API Gateway "
+            f"(expected {expected_routes})"
         )
-    return erros
+    return errors
 
 
-def validar_terraform_cli(resultado, esperado=None):
-    """terraform init + validate numa pasta temporária. Exige Terraform instalado."""
-    with tempfile.TemporaryDirectory() as pasta:
-        for nome, conteudo in resultado["generated_code"]["terraform"].items():
-            (Path(pasta) / Path(nome).name).write_text(conteudo)
+def validate_terraform_cli(result, expected=None):
+    """terraform init + validate in a temporary directory. Requires Terraform."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for name, content in result["generated_code"]["terraform"].items():
+            (Path(temp_dir) / Path(name).name).write_text(content)
         comandos = [
             ["terraform", "init", "-backend=false", "-input=false", "-no-color"],
             ["terraform", "validate", "-no-color"],
@@ -148,26 +148,26 @@ def validar_terraform_cli(resultado, esperado=None):
         for cmd in comandos:
             try:
                 r = subprocess.run(
-                    cmd, cwd=pasta, capture_output=True, text=True, timeout=180
+                    cmd, cwd=temp_dir, capture_output=True, text=True, timeout=180
                 )
             except FileNotFoundError:
-                return ["terraform não instalado"]
+                return ["terraform is not installed"]
             except subprocess.TimeoutExpired:
-                return [f"terraform {cmd[1]} estourou o tempo"]
+                return [f"terraform {cmd[1]} timed out"]
             if r.returncode != 0:
                 return [
-                    f"terraform {cmd[1]} falhou: {(r.stderr or r.stdout).strip()[:500]}"
+                    f"terraform {cmd[1]} failed: {(r.stderr or r.stdout).strip()[:500]}"
                 ]
     return []
 
 
 # -------------------------------------------------------------- registro
-VALIDADORES = {
-    "python": validar_python,
-    "pyflakes": validar_pyflakes,
-    "tf_nao_vazio": validar_terraform_nao_vazio,
-    "regras_tf": validar_terraform_regras,
-    "consistencia": validar_consistencia,
-    "rotas": validar_rotas,
-    "terraform": validar_terraform_cli,
+VALIDATORS = {
+    "python": validate_python,
+    "pyflakes": validate_pyflakes,
+    "tf_nao_vazio": validate_terraform_non_empty,
+    "regras_tf": validate_terraform_rules,
+    "consistencia": validate_consistency,
+    "rotas": validate_routes,
+    "terraform": validate_terraform_cli,
 }

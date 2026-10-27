@@ -3,7 +3,7 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 
-class PayloadRequisicao(BaseModel):
+class RequestPayload(BaseModel):
     prompt: str
 
 
@@ -23,7 +23,7 @@ class GeneratedCode(BaseModel):
     )
 
 
-class ArquiteturaAWS(BaseModel):
+class AWSArchitecture(BaseModel):
     analysis_date: str = Field(description="Analysis date in YYYY-MM-DD format")
     mermaid_diagram: str = Field(
         description="Complete Mermaid diagram code reflecting the microservices flow"

@@ -7,10 +7,10 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
-from models import ArquiteturaAWS
+from models import AWSArchitecture
 
 # Business rules (system prompt, kept in Portuguese on purpose)
-REGRAS_SISTEMA = """Você é um Arquiteto Cloud especialista em AWS Serverless e engenheiro Python sênior.
+SYSTEM_RULES = """Você é um Arquiteto Cloud especialista em AWS Serverless e engenheiro Python sênior.
 Você gera infraestrutura (Terraform HCL) e código (Python) prontos para rodar.
 
 REGRAS CRÍTICAS (SOBREPÕEM QUALQUER CONTEXTO):
@@ -117,24 +117,24 @@ def _invoke_with_retry(chain, payload):
             time.sleep(2 * attempt)  # eases the tokens-per-minute rate limit
 
 
-def generate_architecture_script(llm, prompt_text, contexto_rag):
+def generate_architecture_script(llm, prompt_text, rag_context):
     print("\nGenerating architecture, Mermaid diagram and code...")
 
-    # The Pydantic parser validates the JSON against the ArquiteturaAWS schema
-    parser = PydanticOutputParser(pydantic_object=ArquiteturaAWS)
+    # The Pydantic parser validates the JSON against the AWSArchitecture schema
+    parser = PydanticOutputParser(pydantic_object=AWSArchitecture)
 
     # With a chat API the manual ChatML tags are no longer needed: Groq applies the model template
     prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", "{regras}"),
+            ("system", "{system_rules}"),
             (
                 "user",
-                "[CONTEXTO RAG]:\n{contexto}\n\n"
-                "[DESCRIÇÃO DO PRODUTO]:\n{produto}\n\n"
+                "[CONTEXTO RAG]:\n{context}\n\n"
+                "[DESCRIÇÃO DO PRODUTO]:\n{product}\n\n"
                 "[TAREFA]:\n"
                 "Projete a arquitetura AWS Serverless para este produto e gere o "
                 "Terraform (HCL) e o código Python das Lambdas, seguindo as regras do sistema.\n"
-                "Use analysis_date = {data_hoje}.\n\n"
+                "Use analysis_date = {today_date}.\n\n"
                 "{format_instructions}",
             ),
         ]
@@ -145,10 +145,10 @@ def generate_architecture_script(llm, prompt_text, contexto_rag):
     result_pydantic = _invoke_with_retry(
         chain,
         {
-            "regras": REGRAS_SISTEMA,
-            "contexto": contexto_rag,
-            "produto": prompt_text,
-            "data_hoje": date.today().isoformat(),
+            "system_rules": SYSTEM_RULES,
+            "context": rag_context,
+            "product": prompt_text,
+            "today_date": date.today().isoformat(),
         },
     )
 

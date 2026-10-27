@@ -1,6 +1,6 @@
 # Local FastAPI API
 
-The API is defined in [main.py](main.py) and exposes the `POST /analisar` endpoint.
+The API is defined in [main.py](main.py) and exposes the `POST /create` endpoint.
 
 ## Prerequisites
 
@@ -50,7 +50,7 @@ The request body is JSON, not `multipart/form-data`:
 Example using `curl`:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/analisar \
+curl -X POST http://127.0.0.1:8000/create \
   -H "Content-Type: application/json" \
   -H "X-API-Key: SUA_API_SECRET" \
   -d '{"prompt":"Generate a TO DO list application without Cognito authentication"}'

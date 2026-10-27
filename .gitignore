@@ -19,7 +19,6 @@ share/python-wheels/
 MANIFEST
 
 # Environments
-.env
 .envrc
 .venv
 env/

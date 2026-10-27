@@ -2,19 +2,19 @@ import sys
 from pathlib import Path
 import json
 
-from validators import VALIDADORES
+from validators import VALIDATORS
 
-pasta = Path(__file__).parent / "results"
-arquivo = sorted(pasta.glob("*.json"))[-1]
-dados = json.loads(arquivo.read_text(encoding="utf-8"))
+results_dir = Path(__file__).parent / "results"
+result_file = sorted(results_dir.glob("*.json"))[-1]
+results = json.loads(result_file.read_text(encoding="utf-8"))
 
-mudanca = " ".join(sys.argv[1:]) or "(descreva a mudança)"
-total = len(dados)
-aprovados = sum(r["passou"] for r in dados)
-colunas = [
-    f"{sum(1 for r in dados if r['erros'].get(n) == [])}/{total}"
-    for n in VALIDADORES
+change = " ".join(sys.argv[1:]) or "(describe the change)"
+total = len(results)
+passed = sum(result["passou"] for result in results)
+columns = [
+    f"{sum(1 for result in results if result['erros'].get(name) == [])}/{total}"
+    for name in VALIDATORS
 ]
 
-data = arquivo.stem[:10]
-print(f"| {data} | {mudanca} ({arquivo.name}) | {aprovados}/{total} | " + " | ".join(colunas) + " |")
+date = result_file.stem[:10]
+print(f"| {date} | {change} ({result_file.name}) | {passed}/{total} | " + " | ".join(columns) + " |")
