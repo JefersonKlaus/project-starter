@@ -57,7 +57,7 @@ curl -X POST http://127.0.0.1:8000/create \
 ```
 
 The recommended script for the local workflow is
-[`../test_machine.py`](../test_machine.py). It reads `API_SECRET` from `.env`, sends
+[`../scripts/call_api.py`](../scripts/call_api.py). It reads `API_SECRET` from `.env`, sends
 the prompt as JSON, and saves the response as `backend-ia/resultado_arquitetura.json`.
 
 ## Install cloudflared on Linux

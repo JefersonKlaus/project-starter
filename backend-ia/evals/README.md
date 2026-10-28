@@ -56,10 +56,10 @@ python evals/run_evals.py
 
 ## Manual prompt workflow
 
-To test the CRUD prompt used in `test_machine.py`:
+To test the CRUD prompt used in `scripts/call_api.py`:
 
 ```bash
-python test_machine.py
+python scripts/call_api.py
 ```
 
 With HTTP `200`, the generated file is saved to
@@ -162,7 +162,7 @@ During evals, use `temperature=0.1` and `do_sample=True` in `machine.py`. With a
 
 ### Results observed with the manual prompt
 
-The `test_machine.py` runs returned HTTP `200` and saved the JSON. However, the
+The `scripts/call_api.py` runs returned HTTP `200` and saved the JSON. However, the
 validators found different problems in each generation:
 
 - initial generation: missing imports (`os` and `logging`), one Lambda for four

@@ -70,7 +70,7 @@ async def create_architecture(payload: RequestPayload):
             final_response = final_response[0]
         if not isinstance(final_response, dict):
             raise ValueError(
-                f"Unexpected JSON format from the model. Type: {type(resposta_final).__name__}"
+                f"Unexpected JSON format from the model. Type: {type(final_response).__name__}"
             )
 
         # Add RAG references to the response for auditing
