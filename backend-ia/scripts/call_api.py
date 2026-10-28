@@ -28,9 +28,7 @@ try:
         with open(file_name, "w", encoding="utf-8") as file:
             json.dump(response_json, file, indent=2, ensure_ascii=False)
 
-        print(
-            f"Success! The architecture response was saved to the file: {file_name}"
-        )
+        print(f"Success! The architecture response was saved to the file: {file_name}")
     else:
         print("API error:")
         print(response.text)

@@ -1,8 +1,3 @@
-"""Validators: each one receives (result, expected) and returns a list of errors.
-An empty list means the result passed.
-
-To add a new validator: write the function and register it in VALIDATORS.
-"""
 import ast
 import io
 import re
@@ -14,7 +9,6 @@ from pyflakes import api as pyflakes_api
 from pyflakes import reporter as pyflakes_reporter
 
 
-# ---------------------------------------------------------------- helpers
 def _terraform(result):
     return "\n".join(result["generated_code"]["terraform"].values())
 
@@ -41,9 +35,13 @@ def validate_python(result, expected=None):
         if "httpMethod" in code:
             errors.append(f"{name}: internal routing (rule 2)")
         if re.search(r"return\s+json\.dumps\(", code):
-            errors.append(f"{name}: returns a string instead of a dict (API Gateway proxy)")
+            errors.append(
+                f"{name}: returns a string instead of a dict (API Gateway proxy)"
+            )
         if re.search(r"event\[\s*['\"](region|table_name)['\"]\s*\]", code):
-            errors.append(f"{name}: reads region/table_name from the event (use os.environ)")
+            errors.append(
+                f"{name}: reads region/table_name from the event (use os.environ)"
+            )
     return errors
 
 
@@ -65,7 +63,6 @@ def validate_pyflakes(result, expected=None):
     return errors
 
 
-# ------------------------------------------------------------- terraform
 def validate_terraform_non_empty(result, expected=None):
     """Prevents the other validators from approving an empty result."""
     count = len(re.findall(r'^\s*resource\s+"', _terraform(result), re.M))
@@ -93,13 +90,17 @@ def validate_consistency(result, expected):
     permission_count = len(re.findall(r'resource\s+"aws_lambda_permission"', tf))
     errors = []
     if python_count != terraform_count:
-        errors.append(f"{python_count} .py files but {terraform_count} aws_lambda_function resources")
+        errors.append(
+            f"{python_count} .py files but {terraform_count} aws_lambda_function resources"
+        )
     if terraform_count != expected["lambdas"]:
         errors.append(f"expected {expected['lambdas']} Lambdas, got {terraform_count}")
     if role_count < terraform_count:
         errors.append(f"{role_count} roles for {terraform_count} Lambdas (rule 4)")
     if permission_count < terraform_count:
-        errors.append(f"{permission_count} permissions for {terraform_count} Lambdas (rule 4)")
+        errors.append(
+            f"{permission_count} permissions for {terraform_count} Lambdas (rule 4)"
+        )
     for resource in expected.get("recursos", []):
         if f'"{resource}"' not in tf:
             errors.append(f"missing resource {resource}")
@@ -123,7 +124,9 @@ def validate_routes(result, expected):
     )
     errors = []
     if method_count < expected_routes:
-        errors.append(f"{method_count} aws_api_gateway_method resources for {expected_routes} routes")
+        errors.append(
+            f"{method_count} aws_api_gateway_method resources for {expected_routes} routes"
+        )
     if integration_count < expected_routes:
         errors.append(
             f"{integration_count} aws_api_gateway_integration resources for {expected_routes} routes"
@@ -161,7 +164,7 @@ def validate_terraform_cli(result, expected=None):
     return []
 
 
-# -------------------------------------------------------------- registro
+# ----
 VALIDATORS = {
     "python": validate_python,
     "pyflakes": validate_pyflakes,

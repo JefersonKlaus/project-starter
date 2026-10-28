@@ -203,9 +203,12 @@ for result in results:
     all_terraform = "\n".join(terraform.values())
     print(
         result["id"],
-        "| terraform files:", list(terraform),
-        "| resources:", all_terraform.count('resource "'),
-        "| python:", [name for name in python_files if name.endswith(".py")],
+        "| terraform files:",
+        list(terraform),
+        "| resources:",
+        all_terraform.count('resource "'),
+        "| python:",
+        [name for name in python_files if name.endswith(".py")],
     )
 ```
 

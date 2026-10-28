@@ -17,4 +17,8 @@ columns = [
 ]
 
 date = result_file.stem[:10]
-print(f"| {date} | {change} ({result_file.name}) | {passed}/{total} | " + " | ".join(columns) + " |")
+print(
+    f"| {date} | {change} ({result_file.name}) | {passed}/{total} | "
+    + " | ".join(columns)
+    + " |"
+)

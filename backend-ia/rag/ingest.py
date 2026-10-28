@@ -28,9 +28,7 @@ def dividir_codigo_python(
         language=Language.PYTHON, chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
     documentos_processados = text_splitter.split_documents(documentos_brutos)
-    print(
-        f"The files were split into {len(documentos_processados)} chunks."
-    )
+    print(f"The files were split into {len(documentos_processados)} chunks.")
     return documentos_processados
 
 
