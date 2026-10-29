@@ -1,5 +1,10 @@
+from pathlib import Path
+
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
+
+
+CHROMA_DIRECTORY = Path(__file__).resolve().parents[1] / "chroma_db_local"
 
 
 class RAGEngine:
@@ -7,7 +12,8 @@ class RAGEngine:
         print("Initializing RAG engine and connecting to ChromaDB...")
         self.embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         self.vector_store = Chroma(
-            persist_directory="../chroma_db_local", embedding_function=self.embeddings
+            persist_directory=str(CHROMA_DIRECTORY),
+            embedding_function=self.embeddings,
         )
 
     def find_references(self, user_prompt: str, limit: int = 3):

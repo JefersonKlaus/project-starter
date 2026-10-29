@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from rag import RAGEngine
+from rag import CHROMA_DIRECTORY, RAGEngine
 
 
 def test_find_references_enriches_query_and_formats_documents():
@@ -53,8 +53,16 @@ def test_find_references_returns_empty_context_without_documents():
 def test_rag_engine_initializes_embeddings_and_vector_store(monkeypatch):
     embeddings = object()
     vector_store = object()
-    embeddings_factory = lambda **kwargs: embeddings
-    chroma_factory = lambda **kwargs: vector_store
+
+    def embeddings_factory(**kwargs):
+        return embeddings
+
+    chroma_calls = []
+
+    def chroma_factory(**kwargs):
+        chroma_calls.append(kwargs)
+        return vector_store
+
     monkeypatch.setattr("rag.HuggingFaceEmbeddings", embeddings_factory)
     monkeypatch.setattr("rag.Chroma", chroma_factory)
 
@@ -62,3 +70,9 @@ def test_rag_engine_initializes_embeddings_and_vector_store(monkeypatch):
 
     assert engine.embeddings is embeddings
     assert engine.vector_store is vector_store
+    assert chroma_calls == [
+        {
+            "persist_directory": str(CHROMA_DIRECTORY),
+            "embedding_function": embeddings,
+        }
+    ]

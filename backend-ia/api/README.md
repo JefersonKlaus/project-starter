@@ -7,7 +7,8 @@ The API is defined in [main.py](main.py) and exposes the `POST /create` endpoint
 - Python 3.10+
 - Virtual environment at the project root: `project-starter/.venv`
 - Dependencies installed from [requirements-dev.txt](requirements-dev.txt)
-- `backend-ia/.env` containing `GROQ_API_KEY` and `API_SECRET`
+- `backend-ia/.env` containing `GROQ_API_KEY`, `API_SECRET`, and optionally
+  `CORS_ORIGINS` (a comma-separated list of allowed browser origins)
 
 `GROQ_API_KEY` is required: the API uses a model hosted by Groq to generate
 architectures. Without this variable, the application cannot complete startup.

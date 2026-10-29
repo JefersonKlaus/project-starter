@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -14,6 +16,11 @@ from rag import RAGEngine
 logger = logging.getLogger(__name__)
 load_dotenv()
 API_SECRET = os.environ.get("API_SECRET")
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 # Global AI state
 ai_state = {}
@@ -21,6 +28,9 @@ ai_state = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not API_SECRET:
+        raise RuntimeError("API_SECRET must be configured before starting the API")
+
     # Run when the server starts
     print("Starting heavy services (LLM models and vector database)...")
     ai_state["rag"] = RAGEngine()
@@ -35,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Cloud Specialist - RAG and Code Engine", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,7 +54,7 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
 
 def validate_api_key(provided_key: str = Security(api_key_header)):
-    if provided_key != API_SECRET:
+    if not API_SECRET or not secrets.compare_digest(provided_key, API_SECRET):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Access denied: invalid API key",
@@ -62,8 +72,11 @@ async def create_architecture(payload: RequestPayload):
         rag_context, documents = rag_engine.find_references(payload.prompt)
 
         # Unified generation and extraction through LangChain
-        final_response = generate_architecture_script(
-            llm=llm, prompt_text=payload.prompt, rag_context=rag_context
+        final_response = await asyncio.to_thread(
+            generate_architecture_script,
+            llm=llm,
+            prompt_text=payload.prompt,
+            rag_context=rag_context,
         )
 
         if isinstance(final_response, list) and len(final_response) > 0:
