@@ -7,7 +7,7 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
-from models import AWSArchitecture
+from .models import AWSArchitecture
 
 # Business rules (system prompt, kept in Portuguese on purpose)
 SYSTEM_RULES = """Você é um Arquiteto Cloud especialista em AWS Serverless e engenheiro Python sênior.

@@ -1,23 +1,47 @@
+"""Builds rag_index.json, the reference index read by the Lambda (BM25 search, no embeddings).
+
+Run it locally every time the reference code changes, then upload the result:
+
+    cd backend-ia/rag
+    python scripts/ingest.py                                  # reads ./api, writes ./rag_index.json
+    python scripts/ingest.py --source ./references --output rag_index.json
+    aws s3 cp rag_index.json s3://<bucket>/rag_index.json
+
+Only dependency besides langchain-core: langchain-text-splitters (requirements-dev.txt).
+"""
+
+import argparse
+import json
 from pathlib import Path
 from typing import List
 
-from langchain_community.document_loaders import DirectoryLoader, TextLoader
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
+# Folders that are never useful as reference implementations
+EXCLUDED_DIRS = {"tests", "__pycache__", ".venv", "build", ".git"}
+
 
 # Step 1: read the source code to build the initial documents.
-def carregar_arquivos_python(diretorio: str) -> List[Document]:
+def carregar_arquivos_python(diretorio: Path) -> List[Document]:
     print(f"Reading Python files from directory: {diretorio}...")
-    loader = DirectoryLoader(diretorio, glob="**/*.py", loader_cls=TextLoader)
-    documentos = loader.load()
+    documentos = []
+    for caminho in sorted(diretorio.rglob("*.py")):
+        relativo = caminho.relative_to(diretorio)
+        if EXCLUDED_DIRS.intersection(relativo.parts):
+            continue
+        documentos.append(
+            Document(
+                page_content=caminho.read_text(encoding="utf-8"),
+                # Relative path: keeps local folders out of the prompt and of rag_references
+                metadata={"source": relativo.as_posix()},
+            )
+        )
     print(f"Found {len(documentos)} Python files.")
     return documentos
 
 
-# Step 2: split large files into chunks to improve vector retrieval.
+# Step 2: split large files into chunks to improve retrieval.
 def dividir_codigo_python(
     documentos_brutos: List[Document],
     chunk_size: int = 1000,
@@ -32,38 +56,42 @@ def dividir_codigo_python(
     return documentos_processados
 
 
-# Step 3: load the chunks into the vector database for semantic search.
-def salvar_no_banco_vetorial(
-    documentos: List[Document],
-    pasta_db: str,
-    modelo_embedding: str = "all-MiniLM-L6-v2",
-) -> None:
-    print(f"Loading embedding model ({modelo_embedding})...")
-    embeddings = HuggingFaceEmbeddings(model_name=modelo_embedding)
-
-    print("Generating embeddings and saving to ChromaDB...")
-    Chroma.from_documents(
-        documents=documentos, embedding=embeddings, persist_directory=pasta_db
+# Step 3: save the chunks in the format read by the Lambda (rag.py -> load_documents).
+def salvar_indice_json(documentos: List[Document], caminho_saida: Path) -> None:
+    indice = {
+        "documents": [
+            {"page_content": doc.page_content, "metadata": doc.metadata}
+            for doc in documentos
+        ]
+    }
+    caminho_saida.write_text(
+        json.dumps(indice, ensure_ascii=False, indent=1), encoding="utf-8"
     )
-    print(f"✅ Code ingestion finished. Database saved in: {pasta_db}")
+    print(f"✅ Index saved with {len(documentos)} chunks in: {caminho_saida}")
 
 
-# Orchestrates the ETL pipeline from the project directory without relying on machine-specific paths.
+# Orchestrates the pipeline from the project directory without relying on machine-specific paths.
 def orquestrar_ingestao_de_codigo(
     pasta_scripts: str | None = None,
-    pasta_db: str | None = None,
-):
+    caminho_saida: str | None = None,
+) -> None:
     base_dir = Path(__file__).resolve().parents[1]
 
-    if pasta_scripts is None:
-        pasta_scripts = str(base_dir / "api")
-    if pasta_db is None:
-        pasta_db = str(base_dir / "chroma_db_local")
+    pasta = Path(pasta_scripts) if pasta_scripts else base_dir / "api"
+    saida = Path(caminho_saida) if caminho_saida else base_dir / "rag_index.json"
 
-    docs_brutos = carregar_arquivos_python(pasta_scripts)
+    docs_brutos = carregar_arquivos_python(pasta)
     docs_processados = dividir_codigo_python(docs_brutos)
-    salvar_no_banco_vetorial(docs_processados, pasta_db)
+    salvar_indice_json(docs_processados, saida)
 
 
 if __name__ == "__main__":
-    orquestrar_ingestao_de_codigo()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--source", help="Directory with the reference Python files (default: ../api)"
+    )
+    parser.add_argument(
+        "--output", help="Destination JSON file (default: ../rag_index.json)"
+    )
+    args = parser.parse_args()
+    orquestrar_ingestao_de_codigo(args.source, args.output)

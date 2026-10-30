@@ -3,10 +3,6 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 
-class RequestPayload(BaseModel):
-    prompt: str
-
-
 class AWSService(BaseModel):
     service: str = Field(
         description="AWS service name (e.g., AWS Lambda, Amazon API Gateway)"

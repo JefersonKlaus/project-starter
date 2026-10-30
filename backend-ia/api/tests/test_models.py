@@ -1,7 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from models import AWSArchitecture, GeneratedCode, RequestPayload
+from lambda_create.ai.models import AWSArchitecture, GeneratedCode
+from lambda_create.models import RequestPayload
 
 
 def test_request_payload_accepts_prompt():
