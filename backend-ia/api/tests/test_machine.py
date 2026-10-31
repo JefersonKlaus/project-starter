@@ -33,6 +33,36 @@ def test_invoke_with_retry_does_not_retry_other_bad_requests():
     chain.invoke.assert_called_once()
 
 
+def test_invoke_with_retry_gives_up_after_max_attempts():
+    chain = Mock()
+    chain.invoke.side_effect = OutputParserException("bad json")
+    with pytest.raises(OutputParserException):
+        machine._invoke_with_retry(chain, {})
+    assert chain.invoke.call_count == machine.MAX_ATTEMPTS
+
+
+def test_invoke_with_retry_propagates_unrelated_errors():
+    chain = Mock()
+    chain.invoke.side_effect = KeyError("boom")
+    with pytest.raises(KeyError):
+        machine._invoke_with_retry(chain, {})
+    chain.invoke.assert_called_once()
+
+
+def test_invoke_with_retry_backoff_grows_between_attempts(monkeypatch):
+    waits = []
+    monkeypatch.setattr(machine.time, "sleep", waits.append)
+    chain = Mock()
+    chain.invoke.side_effect = [
+        OutputParserException("bad"),
+        OutputParserException("bad"),
+        "ok",
+    ]
+
+    assert machine._invoke_with_retry(chain, {}) == "ok"
+    assert waits == [2, 4]  # 2 * attempt
+
+
 def test_load_text_model_forces_json_response(monkeypatch):
     chat_groq = Mock(return_value="model")
     monkeypatch.setattr(machine, "ChatGroq", chat_groq)
@@ -43,6 +73,12 @@ def test_load_text_model_forces_json_response(monkeypatch):
     assert kwargs["api_key"] == "test-key"
     assert kwargs["model"] == machine.GROQ_MODEL
     assert kwargs["model_kwargs"] == {"response_format": {"type": "json_object"}}
+
+
+def test_load_text_model_requires_api_key(monkeypatch):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        machine.load_text_model()
 
 
 VALID = {
@@ -77,3 +113,24 @@ def test_generate_architecture_script_retries_invalid_json():
     llm = RunnableLambda(lambda _: AIMessage(content=next(replies)))
     out = machine.generate_architecture_script(llm, "todo API", "")
     assert out["aws_services"][0]["resource_name"] == "create_item"
+
+
+def test_generate_architecture_script_sends_rules_as_system_message():
+    seen = []
+
+    def fake_llm(prompt_value):
+        seen.append(prompt_value.to_messages())
+        return AIMessage(content=json.dumps(VALID))
+
+    machine.generate_architecture_script(
+        RunnableLambda(fake_llm), "todo API", "RAG context"
+    )
+
+    system, user = seen[0]
+    assert system.type == "system" and system.content == machine.SYSTEM_RULES
+    assert user.type == "human"
+    assert "[CONTEXTO RAG]:\nRAG context" in user.content
+    assert f"analysis_date = {date.today().isoformat()}" in user.content
+    assert (
+        "{format_instructions}" not in user.content
+    )  # placeholder was actually filled

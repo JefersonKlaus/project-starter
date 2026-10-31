@@ -10,7 +10,6 @@ from validators import VALIDATORS
 
 load_dotenv()
 URL = os.getenv("EVAL_URL", "http://localhost:8000/create")
-API_KEY = os.getenv("API_SECRET")
 EVALS_DIR = Path(__file__).parent
 
 
@@ -20,7 +19,6 @@ def run_case(case):
         response = requests.post(
             URL,
             json={"prompt": case["prompt"]},
-            headers={"X-API-Key": API_KEY},
             timeout=600,
         )
         response.raise_for_status()

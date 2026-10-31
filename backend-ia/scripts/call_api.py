@@ -1,14 +1,9 @@
-import os
 import requests
 import json
-from dotenv import load_dotenv
-
-load_dotenv()
-API_SECRET = os.environ.get("API_SECRET")
 
 url = "http://127.0.0.1:8000/create"
 
-headers = {"X-API-Key": API_SECRET, "Content-Type": "application/json"}
+headers = {"Content-Type": "application/json"}
 
 payload = {
     "prompt": "To-do list application. The user can create a task, list all tasks, retrieve a task by ID, update a task, and remove a task."

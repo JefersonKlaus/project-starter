@@ -1,0 +1,135 @@
+name: Deploy Lambdas
+
+on:
+  push:
+    branches: [main]                 # runs only when a merge lands on main (apply to development)
+    paths:
+      - "infra/**"
+      - "backend-ia/api/**"
+      - "backend-ia/rag_index/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:                 # manual apply to any env, only allowed from main (see job guards)
+    inputs:
+      environment:
+        type: choice
+        options: [development, stage, prod]
+        default: development
+
+permissions:
+  contents: read
+
+# One deploy at a time per environment (never cancel a running apply).
+concurrency:
+  group: deploy-${{ inputs.environment || 'development' }}
+  cancel-in-progress: false
+
+env:
+  # Must be the same Python as the Lambda `runtime` in Terraform (e.g. python3.12)
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-ia/api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend-ia/api/lambda_create/requirements-dev.txt
+
+      # requirements-dev.txt must NOT pull torch/chromadb after the migration
+      - run: python -m pip install -r lambda_create/requirements-dev.txt
+      - run: python -m pytest
+
+  terraform:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    # GitHub Environment: provides the secrets/variables below and (for prod) required reviewers
+    environment: ${{ inputs.environment || 'development' }}
+
+    env:
+      ENV: ${{ inputs.environment || 'development' }}
+      # Secrets (GitHub Environment secrets)
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}      # -> var.groq_api_key
+      # GitHub Variables (not secrets)
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}           # -> project-starter-tfstate
+      TF_VAR_rag_bucket_name: ${{ vars.RAG_BUCKET }}         # -> var.rag_bucket_name
+      TF_IN_AUTOMATION: "true"
+
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail early: an empty secret would otherwise deploy a Lambda that breaks at runtime
+      - name: Check required GitHub secrets and variables
+        run: |
+          : "${AWS_ACCESS_KEY_ID:?GitHub secret AWS_ACCESS_KEY_ID is not set}"
+          : "${AWS_SECRET_ACCESS_KEY:?GitHub secret AWS_SECRET_ACCESS_KEY is not set}"
+          : "${TF_VAR_groq_api_key:?GitHub secret GROQ_API_KEY is not set}"
+          : "${TF_STATE_BUCKET:?GitHub variable TF_STATE_BUCKET is not set}"
+          : "${TF_VAR_rag_bucket_name:?GitHub variable RAG_BUCKET is not set}"
+
+      - uses: actions/setup-python@v5   # pip is used by Terraform to build the dependencies layer
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.10"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: |
+          case "$ENV" in
+            development) bucket_prefix="sandbox" ;;
+            stage) bucket_prefix="stage" ;;
+            prod) bucket_prefix="production" ;;
+            *) echo "Unsupported environment: $ENV" >&2; exit 1 ;;
+          esac
+          terraform init -input=false -backend-config="bucket=${bucket_prefix}-${TF_STATE_BUCKET}"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false -lock-timeout=5m -var-file=envs/$ENV.tfvars -out=tfplan
+
+      - name: Terraform apply
+        run: terraform apply -input=false -lock-timeout=5m tfplan
+
+      # Calls the public Function URL WITHOUT the API key: must answer 401 and never reaches Groq
+      - name: Smoke test
+        run: |
+          URL=$(terraform output -raw function_url)
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -m 30 -w "%{http_code}" -X POST "$URL" \
+              -H "Content-Type: application/json" -d '{"prompt":"smoke"}' || true)
+            if [ "$code" = "401" ]; then
+              echo "Smoke test OK (401 without API key)"
+              exit 0
+            fi
+            echo "attempt $i: got HTTP $code, expected 401"
+            sleep 5
+          done
+          exit 1
