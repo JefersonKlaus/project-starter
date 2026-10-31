@@ -1,35 +1,27 @@
 name: Deploy Lambdas
 
 on:
-  pull_request:                      # plan only (dev)
-    paths:
-      - "infra/**"
-      - "backend-ia/api/**"
-      - "backend-ia/rag_index/**"    # RAG index uploaded to S3 (adjust to your real path)
-      - ".github/workflows/deploy.yml"
   push:
-    branches: [main]                 # apply to dev
+    branches: [main]                 # runs only when a merge lands on main (apply to development)
     paths:
       - "infra/**"
       - "backend-ia/api/**"
       - "backend-ia/rag_index/**"
       - ".github/workflows/deploy.yml"
-  workflow_dispatch:                 # manual apply to any env
+  workflow_dispatch:                 # manual apply to any env, only allowed from main (see job guards)
     inputs:
       environment:
         type: choice
-        options: [dev, stage, prod]
-        default: dev
+        options: [development, stage, prod]
+        default: development
 
 permissions:
-  id-token: write   # needed for AWS OIDC login
   contents: read
 
 # One deploy at a time per environment (never cancel a running apply).
-# PR plans get their own group so they cannot replace a queued apply.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('plan-{0}', github.ref) || format('deploy-{0}', inputs.environment || 'dev') }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: deploy-${{ inputs.environment || 'development' }}
+  cancel-in-progress: false
 
 env:
   # Must be the same Python as the Lambda `runtime` in Terraform (e.g. python3.12)
@@ -37,6 +29,7 @@ env:
 
 jobs:
   test:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -56,16 +49,19 @@ jobs:
 
   terraform:
     needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     # GitHub Environment: provides the secrets/variables below and (for prod) required reviewers
-    environment: ${{ inputs.environment || 'dev' }}
+    environment: ${{ inputs.environment || 'development' }}
 
     env:
-      ENV: ${{ inputs.environment || 'dev' }}
-      AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      ENV: ${{ inputs.environment || 'development' }}
       # Secrets (GitHub Environment secrets)
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}      # -> var.groq_api_key
+      # GitHub Variables (not secrets)
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}           # -> project-starter-tfstate
       TF_VAR_rag_bucket_name: ${{ vars.RAG_BUCKET }}         # -> var.rag_bucket_name
       TF_IN_AUTOMATION: "true"
@@ -80,7 +76,8 @@ jobs:
       # Fail early: an empty secret would otherwise deploy a Lambda that breaks at runtime
       - name: Check required GitHub secrets and variables
         run: |
-          : "${AWS_ROLE_ARN:?GitHub secret AWS_ROLE_ARN is not set}"
+          : "${AWS_ACCESS_KEY_ID:?GitHub secret AWS_ACCESS_KEY_ID is not set}"
+          : "${AWS_SECRET_ACCESS_KEY:?GitHub secret AWS_SECRET_ACCESS_KEY is not set}"
           : "${TF_VAR_groq_api_key:?GitHub secret GROQ_API_KEY is not set}"
           : "${TF_STATE_BUCKET:?GitHub variable TF_STATE_BUCKET is not set}"
           : "${TF_VAR_rag_bucket_name:?GitHub variable RAG_BUCKET is not set}"
@@ -95,7 +92,8 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
       - name: Terraform fmt
@@ -104,7 +102,7 @@ jobs:
       - name: Terraform init
         run: |
           case "$ENV" in
-            dev) bucket_prefix="sandbox" ;;
+            development) bucket_prefix="sandbox" ;;
             stage) bucket_prefix="stage" ;;
             prod) bucket_prefix="production" ;;
             *) echo "Unsupported environment: $ENV" >&2; exit 1 ;;
@@ -118,22 +116,20 @@ jobs:
         run: terraform plan -input=false -lock-timeout=5m -var-file=envs/$ENV.tfvars -out=tfplan
 
       - name: Terraform apply
-        if: github.event_name != 'pull_request'
         run: terraform apply -input=false -lock-timeout=5m tfplan
 
-      # Calls the public Function URL and verifies that the request succeeds.
+      # Calls the public Function URL WITHOUT the API key: must answer 401 and never reaches Groq
       - name: Smoke test
-        if: github.event_name != 'pull_request'
         run: |
           URL=$(terraform output -raw function_url)
           for i in 1 2 3 4 5; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL" \
+            code=$(curl -s -o /dev/null -m 30 -w "%{http_code}" -X POST "$URL" \
               -H "Content-Type: application/json" -d '{"prompt":"smoke"}' || true)
-            if [ "$code" = "200" ]; then
-              echo "Smoke test OK (200)"
+            if [ "$code" = "401" ]; then
+              echo "Smoke test OK (401 without API key)"
               exit 0
             fi
-            echo "attempt $i: got HTTP $code, expected 200"
+            echo "attempt $i: got HTTP $code, expected 401"
             sleep 5
           done
           exit 1
