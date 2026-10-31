@@ -57,3 +57,13 @@ cython_debug/
 # Project folder
 backend-ia/api/unsloth_compiled_cache/*
 *.pyc
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+build/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+backend.hcl
+crash.log
