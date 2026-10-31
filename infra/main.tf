@@ -26,9 +26,9 @@ provider "aws" {
 }
 
 locals {
-  prefix          = "${var.environment}-${var.project}" # e.g. dev-backend-ia (resources)
-  bucket_prefix   = lookup({ dev = "sandbox", stage = "stage", prod = "production" }, var.environment)
-  rag_s3_bucket   = "${local.bucket_prefix}-${var.rag_bucket_name}"
+  prefix        = "${var.environment}-${var.project}" # e.g. dev-backend-ia (resources)
+  bucket_prefix = lookup({ dev = "sandbox", stage = "stage", prod = "production" }, var.environment)
+  rag_s3_bucket = "${local.bucket_prefix}-${var.rag_bucket_name}"
 }
 
 locals {
