@@ -11,7 +11,7 @@ terraform {
   #   terraform init -reconfigure -backend-config="bucket=sandbox-<TF_STATE_BUCKET>"
   backend "s3" {
     key          = "lambda_create/terraform.tfstate"
-    region       = "us-east-1"
+    region       = "us-east-2"
     encrypt      = true
     use_lockfile = true
   }
