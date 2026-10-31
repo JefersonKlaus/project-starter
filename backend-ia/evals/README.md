@@ -25,7 +25,6 @@ evals/
 - Terraform installed and available on PATH (`terraform version` must work in the same terminal). Without it, the `terraform` validator fails every case.
 - API running (`cd api && uvicorn main:app --host 0.0.0.0 --port 8000`)
 - `GROQ_API_KEY` set in `.env`, because the API uses the model hosted by Groq
-- `API_SECRET` set in `.env` to authenticate requests
 
 Recommended for speeding up `terraform init` (downloads the AWS provider):
 
@@ -39,7 +38,6 @@ export TF_PLUGIN_CACHE_DIR=~/.terraform-cache
 | Variable | Default | Usage |
 |---|---|---|
 | `GROQ_API_KEY` | (required) | Access to the model used by the API |
-| `API_SECRET` | (required) | Sent in the `X-API-Key` header |
 | `EVAL_URL` | `http://localhost:8000/create` | API URL |
 
 ## Running

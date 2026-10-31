@@ -31,6 +31,6 @@ variable "cors_origins" {
 }
 
 variable "rag_bucket_name" {
-  description = "Base name of the bucket that stores rag_index.json; the real bucket is \"<env>-<name>\". Set with TF_VAR_rag_bucket_name."
+  description = "Base name of the RAG bucket; its prefix is sandbox, stage or production according to the environment. Set with TF_VAR_rag_bucket_name."
   type        = string
 }

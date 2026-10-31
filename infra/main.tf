@@ -8,7 +8,7 @@ terraform {
 
   # Remote state in S3, one bucket per environment, always prefixed with the env name.
   # The bucket is passed at init time (CI builds it from GitHub variables):
-  #   terraform init -reconfigure -backend-config="bucket=dev-<TF_STATE_BUCKET>"
+  #   terraform init -reconfigure -backend-config="bucket=sandbox-<TF_STATE_BUCKET>"
   backend "s3" {
     key          = "lambda_create/terraform.tfstate"
     region       = "us-east-1"
@@ -26,8 +26,9 @@ provider "aws" {
 }
 
 locals {
-  prefix        = "${var.environment}-${var.project}"         # e.g. dev-backend-ia (resources)
-  rag_s3_bucket = "${var.environment}-${var.rag_bucket_name}" # e.g. dev-backend-ia-rag (fixed env prefix)
+  prefix          = "${var.environment}-${var.project}" # e.g. dev-backend-ia (resources)
+  bucket_prefix   = lookup({ dev = "sandbox", stage = "stage", prod = "production" }, var.environment)
+  rag_s3_bucket   = "${local.bucket_prefix}-${var.rag_bucket_name}"
 }
 
 locals {

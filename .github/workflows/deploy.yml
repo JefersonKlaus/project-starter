@@ -66,9 +66,7 @@ jobs:
       AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
       # Secrets (GitHub Environment secrets)
       TF_VAR_groq_api_key: ${{ secrets.GROQ_API_KEY }}      # -> var.groq_api_key
-      TF_VAR_api_secret: ${{ secrets.API_SECRET }}          # -> var.api_secret (X-API-Key)
-      # Bucket base names (GitHub variables); the "<env>-" prefix is added automatically
-      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}           # -> backend bucket "<env>-<TF_STATE_BUCKET>"
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}           # -> project-starter-tfstate
       TF_VAR_rag_bucket_name: ${{ vars.RAG_BUCKET }}         # -> var.rag_bucket_name
       TF_IN_AUTOMATION: "true"
 
@@ -84,7 +82,6 @@ jobs:
         run: |
           : "${AWS_ROLE_ARN:?GitHub secret AWS_ROLE_ARN is not set}"
           : "${TF_VAR_groq_api_key:?GitHub secret GROQ_API_KEY is not set}"
-          : "${TF_VAR_api_secret:?GitHub secret API_SECRET is not set}"
           : "${TF_STATE_BUCKET:?GitHub variable TF_STATE_BUCKET is not set}"
           : "${TF_VAR_rag_bucket_name:?GitHub variable RAG_BUCKET is not set}"
 
@@ -105,7 +102,14 @@ jobs:
         run: terraform fmt -check -recursive
 
       - name: Terraform init
-        run: terraform init -input=false -backend-config="bucket=${ENV}-${TF_STATE_BUCKET}"
+        run: |
+          case "$ENV" in
+            dev) bucket_prefix="sandbox" ;;
+            stage) bucket_prefix="stage" ;;
+            prod) bucket_prefix="production" ;;
+            *) echo "Unsupported environment: $ENV" >&2; exit 1 ;;
+          esac
+          terraform init -input=false -backend-config="bucket=${bucket_prefix}-${TF_STATE_BUCKET}"
 
       - name: Terraform validate
         run: terraform validate
@@ -117,7 +121,7 @@ jobs:
         if: github.event_name != 'pull_request'
         run: terraform apply -input=false -lock-timeout=5m tfplan
 
-      # Calls the new Function URL WITHOUT the API key: must answer 401 and never reaches Groq
+      # Calls the public Function URL and verifies that the request succeeds.
       - name: Smoke test
         if: github.event_name != 'pull_request'
         run: |
@@ -125,11 +129,11 @@ jobs:
           for i in 1 2 3 4 5; do
             code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$URL" \
               -H "Content-Type: application/json" -d '{"prompt":"smoke"}' || true)
-            if [ "$code" = "401" ]; then
-              echo "Smoke test OK (401 without API key)"
+            if [ "$code" = "200" ]; then
+              echo "Smoke test OK (200)"
               exit 0
             fi
-            echo "attempt $i: got HTTP $code, expected 401"
+            echo "attempt $i: got HTTP $code, expected 200"
             sleep 5
           done
           exit 1
