@@ -1,0 +1,220 @@
+{
+ "documents": [
+  {
+   "page_content": "\"\"\"Lambda application package.\"\"\"",
+   "metadata": {
+    "source": "lambda_create/__init__.py"
+   }
+  },
+  {
+   "page_content": "import os\nimport time\nfrom datetime import date\n\nfrom groq import BadRequestError\nfrom langchain_core.exceptions import OutputParserException\nfrom langchain_core.output_parsers import PydanticOutputParser\nfrom langchain_core.prompts import ChatPromptTemplate\nfrom langchain_groq import ChatGroq\nfrom .models import AWSArchitecture\n\n# Business rules (system prompt, kept in Portuguese on purpose)\nSYSTEM_RULES = \"\"\"Você é um Arquiteto Cloud especialista em AWS Serverless e engenheiro Python sênior.\nVocê gera infraestrutura (Terraform HCL) e código (Python) prontos para rodar.\n\nREGRAS CRÍTICAS (SOBREPÕEM QUALQUER CONTEXTO):",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "REGRAS CRÍTICAS (SOBREPÕEM QUALQUER CONTEXTO):\n\nARQUITETURA\n1. UMA LAMBDA POR AÇÃO: é PROIBIDO criar Lambdas monolíticas. Deduza da DESCRIÇÃO DO PRODUTO cada ação que o usuário pode executar e crie uma Lambda para cada uma, com seu próprio arquivo Python (ex: get_item.py, create_item.py) e seu próprio `aws_lambda_function`. Listar todos e consultar por id são ações distintas. Se a descrição não deixar as ações claras, assuma um CRUD completo: create, list, get por id, update e delete. Não crie ações que a descrição não sugere.\n2. SEM ROTEAMENTO INTERNO: nenhum arquivo Python pode conter `httpMethod` nem `if event[...]` para escolher a ação. O API Gateway já chama a Lambda certa.\n3. CONTEXTO RAG: use o [CONTEXTO RAG] só como referência de lógica de negócio e uso do `boto3`. Se o contexto for monolítico, QUEBRE em várias Lambdas conforme a regra 1. Nunca copie caminhos, nomes de tabela ou ARNs do contexto.",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "TERRAFORM\n4. Para CADA Lambda crie recursos dedicados: `aws_lambda_function`, `aws_iam_role`, `aws_iam_role_policy` (menor privilégio: só as ações e o ARN da tabela que essa Lambda usa), `aws_iam_role_policy_attachment` com a policy gerenciada `arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole` (para gravar logs) e `aws_lambda_permission`.\n5. Crie também os recursos de infraestrutura que o pedido exige: `aws_dynamodb_table` (billing_mode = \"PAY_PER_REQUEST\"), `aws_api_gateway_rest_api` com resource, method e integration para cada rota, e um `aws_cloudwatch_log_group` (name = \"/aws/lambda/<function_name>\") para cada Lambda; a Lambda deve ter `depends_on` apontando para o seu log group.\n6. DEPLOY DO API GATEWAY: o `aws_api_gateway_deployment` NUNCA tem `stage_name`. O stage é um `aws_api_gateway_stage` separado. Siga este padrão (substitua <...> pelos nomes reais):",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "resource \"aws_api_gateway_deployment\" \"api\" {\n     rest_api_id = aws_api_gateway_rest_api.<api>.id\n     triggers = {\n       redeployment = sha1(jsonencode([\n         aws_api_gateway_integration.<integracao_1>.id,\n         aws_api_gateway_integration.<integracao_2>.id\n       ]))\n     }\n     lifecycle {\n       create_before_destroy = true\n     }\n     depends_on = [aws_api_gateway_integration.<integracao_1>, aws_api_gateway_integration.<integracao_2>]\n   }\n\n   resource \"aws_api_gateway_stage\" \"prod\" {\n     rest_api_id   = aws_api_gateway_rest_api.<api>.id\n     deployment_id = aws_api_gateway_deployment.api.id\n     stage_name    = \"prod\"\n   }\n\n   Liste TODAS as integrations no `triggers` e no `depends_on`.\n7. EMPACOTAMENTO: `aws_lambda_function` NUNCA usa um `.py` em `filename`. Para cada Lambda use um `data \"archive_file\"` e referencie o zip:",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "data \"archive_file\" \"<acao>\" {\n     type        = \"zip\"\n     source_file = \"${path.module}/lambda/<arquivo>.py\"\n     output_path = \"${path.module}/build/<acao>.zip\"\n   }\n   (na função: filename = data.archive_file.<acao>.output_path e source_code_hash = data.archive_file.<acao>.output_base64sha256)\n\n8. `aws_lambda_permission` usa `source_arn` com o ARN de execução do API Gateway (`${aws_api_gateway_rest_api.<nome>.execution_arn}/*/*`). NUNCA `source_arn = \"*\"`.\n9. Use `runtime = \"python3.12\"`. Configure o `provider \"aws\"` com `region = var.region`. Todas as variáveis declaradas em `variables.tf` devem ser usadas. Passe o nome da tabela para a Lambda em `environment { variables = { TABLE_NAME = ... } }`.\n10. Inclua `outputs.tf` com a URL da API, usando `aws_api_gateway_stage.prod.invoke_url`. O `main.tf` NÃO pode conter blocos `output`; todos os outputs ficam só em `outputs.tf`. Chaves do dicionário terraform: `main.tf`, `variables.tf`, `outputs.tf`.",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "PYTHON\n11. Leia configuração com `os.environ[\"TABLE_NAME\"]`, NUNCA de `event[\"region\"]` ou `event[\"table_name\"]`. Crie o cliente boto3 fora do handler. Importe tudo que usar (`os`, `json`, `logging`, `boto3`, `ClientError`).\n12. Retorne SEMPRE um dict no formato do API Gateway proxy:\n   {\"statusCode\": 200, \"headers\": {\"Content-Type\": \"application/json\"}, \"body\": json.dumps(dados, default=str)}\n   NUNCA escreva `return json.dumps(...)` direto no handler.\n13. Trate erros: item inexistente retorna 404 (`response.get(\"Item\")` vazio), entrada inválida retorna 400, `ClientError` retorna 500 com mensagem genérica. NUNCA devolva `e.response` ao cliente. Registre o erro com `logging`.\n14. Nunca devolva o `response` bruto do DynamoDB (contém ResponseMetadata). Devolva só os dados.\n15. Inclua `requirements.txt` só com o que realmente precisa (o `boto3` já existe no runtime da Lambda).",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "GERAÇÃO\n16. Escreva TODO o código HCL e Python completo, de TODAS as Lambdas, linha por linha. É PROIBIDO abreviar com \"[CÓDIGO AQUI]\", \"...\", \"omitted for brevity\" ou \"repita para as demais\".\n17. O diagrama Mermaid deve usar exatamente os mesmos nomes das Lambdas e arquivos que você gerou, nem mais nem menos.\n18. FORMATO JSON: cada arquivo é UMA string JSON, com quebras de linha como \\\\n e aspas internas escapadas. Para reduzir erros de escape, no código Python prefira aspas simples. O objeto `terraform` contém os TRÊS arquivos (main.tf, variables.tf, outputs.tf) e só fecha depois do último. Revise as chaves e vírgulas antes de responder.\n19. Responda SOMENTE com o JSON pedido, sem texto antes ou depois.\"\"\"\n\n# Model hosted on Groq (change here to try another one)\nGROQ_MODEL = \"openai/gpt-oss-120b\"\nMAX_ATTEMPTS = 3",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "def load_text_model():\n    \"\"\"Create the Groq client. The key comes from the GROQ_API_KEY variable (.env).\"\"\"\n    api_key = os.environ.get(\"GROQ_API_KEY\")\n    if not api_key:\n        raise RuntimeError(\n            \"GROQ_API_KEY not found. Add GROQ_API_KEY=gsk_... to the .env file\"\n        )\n\n    print(f\"Connecting to Groq with model {GROQ_MODEL}...\")\n    return ChatGroq(\n        api_key=api_key,\n        model=GROQ_MODEL,\n        temperature=0.1,\n        max_tokens=12000,  # gpt-oss is a reasoning model: part of the tokens goes to its \"thinking\"\n        max_retries=2,\n        timeout=120,\n        # Forces a valid JSON response (the prompt already mentions JSON via format_instructions)\n        model_kwargs={\"response_format\": {\"type\": \"json_object\"}},\n    )",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "def _invoke_with_retry(chain, payload):\n    \"\"\"Retry when the model returns invalid JSON (intermittent escaping failure).\"\"\"\n    for attempt in range(1, MAX_ATTEMPTS + 1):\n        try:\n            return chain.invoke(payload)\n        except (BadRequestError, OutputParserException) as e:\n            # Other 400 errors (bad key, bad parameters) are not worth retrying\n            if isinstance(e, BadRequestError) and \"json_validate_failed\" not in str(e):\n                raise\n            if attempt == MAX_ATTEMPTS:\n                raise\n            print(\n                f\"Invalid JSON from the model, attempt {attempt + 1}/{MAX_ATTEMPTS}...\"\n            )\n            time.sleep(2 * attempt)  # eases the tokens-per-minute rate limit",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "def generate_architecture_script(llm, prompt_text, rag_context):\n    print(\"\\nGenerating architecture, Mermaid diagram and code...\")\n\n    # The Pydantic parser validates the JSON against the AWSArchitecture schema\n    parser = PydanticOutputParser(pydantic_object=AWSArchitecture)",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "# The Pydantic parser validates the JSON against the AWSArchitecture schema\n    parser = PydanticOutputParser(pydantic_object=AWSArchitecture)\n\n    # With a chat API the manual ChatML tags are no longer needed: Groq applies the model template\n    prompt = ChatPromptTemplate.from_messages(\n        [\n            (\"system\", \"{system_rules}\"),\n            (\n                \"user\",\n                \"[CONTEXTO RAG]:\\n{context}\\n\\n\"\n                \"[DESCRIÇÃO DO PRODUTO]:\\n{product}\\n\\n\"\n                \"[TAREFA]:\\n\"\n                \"Projete a arquitetura AWS Serverless para este produto e gere o \"\n                \"Terraform (HCL) e o código Python das Lambdas, seguindo as regras do sistema.\\n\"\n                \"Use analysis_date = {today_date}.\\n\\n\"\n                \"{format_instructions}\",\n            ),\n        ]\n    ).partial(format_instructions=parser.get_format_instructions())\n\n    chain = prompt | llm | parser",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "chain = prompt | llm | parser\n\n    result_pydantic = _invoke_with_retry(\n        chain,\n        {\n            \"system_rules\": SYSTEM_RULES,\n            \"context\": rag_context,\n            \"product\": prompt_text,\n            \"today_date\": date.today().isoformat(),\n        },\n    )\n\n    result = result_pydantic.model_dump()\n    result[\"analysis_date\"] = (\n        date.today().isoformat()\n    )  # guarantees the date even if the model gets it wrong\n    return result",
+   "metadata": {
+    "source": "lambda_create/ai/machine.py"
+   }
+  },
+  {
+   "page_content": "from typing import Dict, List\n\nfrom pydantic import BaseModel, Field\n\n\nclass AWSService(BaseModel):\n    service: str = Field(\n        description=\"AWS service name (e.g., AWS Lambda, Amazon API Gateway)\"\n    )\n    resource_name: str = Field(description=\"Resource name in the architecture\")\n\n\nclass GeneratedCode(BaseModel):\n    terraform: Dict[str, str] = Field(\n        description=\"Dictionary with 'main.tf' and 'variables.tf' as keys and complete generated HCL scripts as values.\"\n    )\n    python: Dict[str, str] = Field(\n        description=\"Dictionary with file names (e.g., 'create_item.py', 'requirements.txt') as keys and complete Python scripts as values.\"\n    )",
+   "metadata": {
+    "source": "lambda_create/ai/models.py"
+   }
+  },
+  {
+   "page_content": "class AWSArchitecture(BaseModel):\n    analysis_date: str = Field(description=\"Analysis date in YYYY-MM-DD format\")\n    mermaid_diagram: str = Field(\n        description=\"Complete Mermaid diagram code reflecting the microservices flow\"\n    )\n    aws_services: List[AWSService] = Field(\n        description=\"List of AWS services used in this architecture\"\n    )\n    generated_code: GeneratedCode = Field(\n        description=\"All generated infrastructure and application code\"\n    )",
+   "metadata": {
+    "source": "lambda_create/ai/models.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"RAG over a precomputed index of reference files (rag_index.json), searched with BM25.\n\nThe index is generated locally by the ingestion script (backend-ia/scripts).\nNo embeddings model is needed at query time: ranking is plain keyword BM25.\n\"\"\"\n\nimport json\nimport math\nimport re\nfrom collections import Counter\n\nfrom langchain_core.documents import Document\n\nTOKEN_PATTERN = re.compile(r\"[a-z0-9]+\")\n\n\ndef tokenize(text: str) -> list:\n    \"\"\"Lowercase alphanumeric tokens; splits identifiers such as aws_lambda_function.\"\"\"\n    return TOKEN_PATTERN.findall(text.lower())",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "class BM25Index:\n    \"\"\"Minimal BM25 ranking (Okapi) over a small, in-memory list of documents.\"\"\"\n\n    def __init__(self, documents, k1: float = 1.5, b: float = 0.75):\n        self.documents = list(documents)\n        self.k1 = k1\n        self.b = b\n\n        self._term_frequencies = [\n            Counter(tokenize(doc.page_content)) for doc in self.documents\n        ]\n        self._lengths = [sum(tf.values()) for tf in self._term_frequencies]\n        self._average_length = (\n            sum(self._lengths) / len(self._lengths) if self._lengths else 0.0\n        )\n\n        document_frequencies = Counter()\n        for tf in self._term_frequencies:\n            document_frequencies.update(tf.keys())\n        total = len(self.documents)\n        self._idf = {\n            term: math.log(1 + (total - df + 0.5) / (df + 0.5))\n            for term, df in document_frequencies.items()\n        }",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "def score(self, query_terms, position: int) -> float:\n        tf = self._term_frequencies[position]\n        if self._average_length:\n            length_norm = (\n                1 - self.b + self.b * self._lengths[position] / self._average_length\n            )\n        else:\n            length_norm = 1.0\n\n        score = 0.0\n        for term in query_terms:\n            freq = tf.get(term)\n            if not freq:\n                continue\n            score += (\n                self._idf[term] * freq * (self.k1 + 1) / (freq + self.k1 * length_norm)\n            )\n        return score",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "def search(self, query: str, k: int = 3) -> list:\n        \"\"\"Return up to k documents that share terms with the query, best match first.\"\"\"\n        query_terms = tokenize(query)\n        scored = [\n            (self.score(query_terms, position), position)\n            for position in range(len(self.documents))\n        ]\n        ranked = sorted(\n            (pair for pair in scored if pair[0] > 0),\n            key=lambda pair: (-pair[0], pair[1]),\n        )\n        return [self.documents[position] for _, position in ranked[:k]]",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "def load_documents(path) -> list:\n    \"\"\"Read rag_index.json ({\"documents\": [{\"page_content\", \"metadata\"}, ...]}).\"\"\"\n    with open(path, encoding=\"utf-8\") as file:\n        data = json.load(file)\n    entries = data[\"documents\"] if isinstance(data, dict) else data\n    return [\n        Document(\n            page_content=entry[\"page_content\"], metadata=entry.get(\"metadata\") or {}\n        )\n        for entry in entries\n    ]",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "class RAGEngine:\n    def __init__(self, index_path):\n        print(f\"Initializing RAG engine from {index_path}...\")\n        self.documents = load_documents(index_path)\n        self.index = BM25Index(self.documents)\n        print(f\"RAG index loaded with {len(self.documents)} document(s)\")\n\n    def find_references(self, user_prompt: str, limit: int = 3):\n        # Enrich the query to help the index find reference implementations\n        technical_query = f\"{user_prompt} serverless architecture aws python terraform api gateway lambda dynamodb\"\n        print(\"Searching the reference index for the enriched query...\")\n\n        documents = self.index.search(technical_query, k=limit)\n\n        formatted_context = \"\\n\\n---\\n\\n\".join(\n            f\"Reference file (REFERENCE): {doc.metadata.get('source', 'unknown')}\\n\"\n            f\"{doc.page_content}\"\n            for doc in documents\n        )\n\n        return formatted_context, documents",
+   "metadata": {
+    "source": "lambda_create/ai/rag.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Environment configuration, read once at import time.\n\n`.env` is only relevant for local runs; in AWS the variables come from the\nLambda function configuration.\n\"\"\"\n\nimport os\nfrom pathlib import Path\n\nfrom dotenv import load_dotenv\n\nload_dotenv()\n\n# Browser origins allowed to call the Lambda (comma-separated)\nCORS_ORIGINS = [\n    origin.strip()\n    for origin in os.environ.get(\"CORS_ORIGINS\", \"\").split(\",\")\n    if origin.strip()\n]\n\n# Where the RAG index (rag_index.json, built locally by the ingestion script) is stored\n# in S3 and where it is copied locally (Lambda can only write under /tmp)\nRAG_S3_BUCKET = os.environ.get(\"RAG_S3_BUCKET\")\nRAG_S3_KEY = os.environ.get(\"RAG_S3_KEY\", \"rag_index.json\")\nRAG_INDEX_PATH = Path(os.environ.get(\"RAG_INDEX_PATH\", \"/tmp/rag_index.json\"))",
+   "metadata": {
+    "source": "lambda_create/config.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"AWS Lambda entry point (POST, open API).\"\"\"\n\nimport logging\n\nimport orchestrator\n\nlogging.getLogger().setLevel(logging.INFO)\n\n\ndef lambda_handler(event, context):\n    return orchestrator.handle(event or {})",
+   "metadata": {
+    "source": "lambda_create/main.py"
+   }
+  },
+  {
+   "page_content": "from typing import Dict, List\n\nfrom pydantic import BaseModel, Field\n\n\nclass RequestPayload(BaseModel):\n    prompt: str",
+   "metadata": {
+    "source": "lambda_create/models.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Orchestrator: request parsing -> service -> response, mapping failures to HTTP statuses.\"\"\"\n\nimport logging\n\nimport response\nfrom request_parser import RequestParseError, parse_request\nfrom service_architecture import create_architecture\n\nlogger = logging.getLogger(__name__)\n\n\ndef handle(event):\n    try:\n        payload = parse_request(event)\n    except RequestParseError as e:\n        return response.error(e.status_code, e.detail, event)\n\n    try:\n        result = create_architecture(payload.prompt)\n    except Exception as e:\n        logger.exception(\"Failed to analyze the architecture\")\n        return response.error(500, f\"Could not process the architecture: {e}\", event)\n\n    return response.success(result, event)",
+   "metadata": {
+    "source": "lambda_create/orchestrator.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Serializer: turns an API Gateway proxy event into the input model (models.RequestPayload).\"\"\"\n\nimport base64\nimport json\n\nfrom models import RequestPayload\nfrom pydantic import ValidationError",
+   "metadata": {
+    "source": "lambda_create/request_parser.py"
+   }
+  },
+  {
+   "page_content": "class RequestParseError(Exception):\n    \"\"\"The request could not be turned into a valid input model.\"\"\"\n\n    def __init__(self, status_code, detail):\n        super().__init__(detail)\n        self.status_code = status_code\n        self.detail = detail\n\n\ndef get_header(event, name):\n    \"\"\"Case-insensitive header lookup (API Gateway does not normalize header names).\"\"\"\n    headers = event.get(\"headers\") or {}\n    name = name.lower()\n    for key, value in headers.items():\n        if key.lower() == name:\n            return value\n    return None\n\n\ndef parse_json_body(event):\n    \"\"\"Return the JSON body of an API Gateway proxy event as a Python object.\"\"\"\n    body = event.get(\"body\")\n    if isinstance(body, (dict, list)):\n        return body  # direct invocation with an already decoded payload\n    if body is None:\n        body = \"\"\n    if event.get(\"isBase64Encoded\"):\n        body = base64.b64decode(body, validate=True).decode(\"utf-8\")\n    return json.loads(body or \"{}\")",
+   "metadata": {
+    "source": "lambda_create/request_parser.py"
+   }
+  },
+  {
+   "page_content": "def parse_request(event) -> RequestPayload:\n    \"\"\"Decode and validate the request body.\n\n    Raises RequestParseError with status 400 (body is not JSON) or 422 (schema mismatch).\n    \"\"\"\n    try:\n        data = parse_json_body(event)\n    except (ValueError, UnicodeDecodeError) as e:\n        raise RequestParseError(400, f\"Invalid JSON body: {e}\") from e\n\n    try:\n        return RequestPayload.model_validate(data)\n    except ValidationError as e:\n        raise RequestParseError(422, e.errors(include_url=False)) from e",
+   "metadata": {
+    "source": "lambda_create/request_parser.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Output: builds API Gateway proxy responses (JSON body and CORS headers).\"\"\"\n\nimport json\n\nimport config\nfrom request_parser import get_header\n\n\ndef cors_headers(event):\n    origin = get_header(event, \"Origin\")\n    if origin and origin in config.CORS_ORIGINS:\n        return {\"Access-Control-Allow-Origin\": origin, \"Vary\": \"Origin\"}\n    return {}\n\n\ndef build_response(status_code, body, event=None):\n    headers = {\"Content-Type\": \"application/json\", **cors_headers(event or {})}\n    return {\n        \"statusCode\": status_code,\n        \"headers\": headers,\n        \"body\": json.dumps(body, default=str),\n    }\n\n\ndef success(body, event=None):\n    return build_response(200, body, event)\n\n\ndef error(status_code, detail, event=None):\n    return build_response(status_code, {\"detail\": detail}, event)",
+   "metadata": {
+    "source": "lambda_create/response.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Service: lifecycle of the heavy clients (RAG index and LLM).\n\nThey are cached at module level so that warm Lambda containers reuse them\ninstead of reloading on every invocation.\n\"\"\"\n\nimport boto3\n\nimport config\nfrom ai.machine import load_text_model\nfrom ai.rag import RAGEngine\n\nai_state = {}",
+   "metadata": {
+    "source": "lambda_create/service_ai.py"
+   }
+  },
+  {
+   "page_content": "def ensure_rag_index():\n    \"\"\"Return the local path of rag_index.json, downloading it from S3 when absent.\n\n    The download is skipped when the file already exists (warm container, or a\n    local run with RAG_INDEX_PATH pointing to a prebuilt index).\n    \"\"\"\n    index_path = config.RAG_INDEX_PATH\n    if index_path.exists():\n        return index_path\n\n    if not config.RAG_S3_BUCKET:\n        raise RuntimeError(\n            f\"RAG index not found at {index_path} and RAG_S3_BUCKET is not set\"\n        )",
+   "metadata": {
+    "source": "lambda_create/service_ai.py"
+   }
+  },
+  {
+   "page_content": "if not config.RAG_S3_BUCKET:\n        raise RuntimeError(\n            f\"RAG index not found at {index_path} and RAG_S3_BUCKET is not set\"\n        )\n\n    print(\n        f\"Downloading s3://{config.RAG_S3_BUCKET}/{config.RAG_S3_KEY} to {index_path}...\"\n    )\n    index_path.parent.mkdir(parents=True, exist_ok=True)\n    try:\n        boto3.client(\"s3\").download_file(\n            config.RAG_S3_BUCKET, config.RAG_S3_KEY, str(index_path)\n        )\n    except Exception as e:\n        raise RuntimeError(\n            f\"Could not download the RAG index from \"\n            f\"s3://{config.RAG_S3_BUCKET}/{config.RAG_S3_KEY}: {e}\"\n        ) from e\n    return index_path",
+   "metadata": {
+    "source": "lambda_create/service_ai.py"
+   }
+  },
+  {
+   "page_content": "def get_ai_state():\n    \"\"\"Lazily initialize the RAG engine and the LLM client on the first invocation.\"\"\"\n    if \"rag\" not in ai_state:\n        print(\"Starting heavy services (RAG index and LLM client)...\")\n        ai_state[\"rag\"] = RAGEngine(ensure_rag_index())\n    if \"llm\" not in ai_state:\n        ai_state[\"llm\"] = load_text_model()\n    return ai_state",
+   "metadata": {
+    "source": "lambda_create/service_ai.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"Service: generate an AWS architecture (diagram, Terraform and Python) for a product description.\"\"\"\n\nfrom ai.machine import generate_architecture_script\nfrom service_ai import get_ai_state",
+   "metadata": {
+    "source": "lambda_create/service_architecture.py"
+   }
+  },
+  {
+   "page_content": "def create_architecture(prompt: str) -> dict:\n    state = get_ai_state()\n    rag_engine = state[\"rag\"]\n    llm = state[\"llm\"]\n\n    # Search for reference implementations in the vector database\n    rag_context, documents = rag_engine.find_references(prompt)\n\n    # Unified generation and extraction through LangChain\n    final_response = generate_architecture_script(\n        llm=llm,\n        prompt_text=prompt,\n        rag_context=rag_context,\n    )\n\n    if isinstance(final_response, list) and len(final_response) > 0:\n        final_response = final_response[0]\n    if not isinstance(final_response, dict):\n        raise ValueError(\n            f\"Unexpected JSON format from the model. Type: {type(final_response).__name__}\"\n        )\n\n    # Add RAG references to the response for auditing\n    final_response[\"rag_references\"] = [\n        doc.metadata.get(\"source\", \"unknown\") for doc in documents\n    ]\n\n    return final_response",
+   "metadata": {
+    "source": "lambda_create/service_architecture.py"
+   }
+  },
+  {
+   "page_content": "\"\"\"AWS Lambda entry point for the health check endpoint.\"\"\"\n\nimport json\n\n\ndef lambda_handler(event, context):\n    return {\n        \"statusCode\": 200,\n        \"headers\": {\"Content-Type\": \"application/json\"},\n        \"body\": json.dumps({\"status\": \"ok\", \"message\": \"Service is up and running\"}),\n    }",
+   "metadata": {
+    "source": "lambda_status/main.py"
+   }
+  }
+ ]
+}
