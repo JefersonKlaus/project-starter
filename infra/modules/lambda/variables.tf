@@ -3,12 +3,12 @@ variable "lambda_function_name" {
 }
 
 variable "source_dir" {
-  description = "Folder zipped as the function code. Must contain the Python package, e.g. <source_dir>/lambda_create/main.py"
+  description = "Folder zipped as the function code (flat layout): its files land at the zip root, e.g. <source_dir>/main.py"
   type        = string
 }
 
 variable "handler" {
-  description = "Entry point, e.g. lambda_create.main.lambda_handler"
+  description = "Entry point, e.g. main.lambda_handler (file main.py at the zip root, function lambda_handler)"
   type        = string
 }
 
@@ -17,8 +17,8 @@ variable "excludes" {
   type        = list(string)
   default = [
     "tests", "pytest.ini", ".env", "*/.env", ".venv",
-    "*/__pycache__", "*/*/__pycache__", "*/*/*/__pycache__",
-    "*/requirements.txt", "*/requirements-dev.txt",
+    "__pycache__", "*/__pycache__", "*/*/__pycache__",
+    "requirements.txt", "requirements-dev.txt",
   ]
 }
 

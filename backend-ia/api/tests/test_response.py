@@ -1,8 +1,8 @@
 import json
 from datetime import date
 
-from lambda_create import config
-from lambda_create.response import build_response, cors_headers, error, success
+import config
+from response import build_response, cors_headers, error, success
 
 
 def test_cors_headers_for_allowed_origin(monkeypatch):

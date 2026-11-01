@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from lambda_create.models import RequestPayload
-from lambda_create.request_parser import (
+from models import RequestPayload
+from request_parser import (
     RequestParseError,
     get_header,
     parse_json_body,

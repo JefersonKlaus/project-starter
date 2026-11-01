@@ -2,9 +2,9 @@
 
 import logging
 
-from . import response
-from .request_parser import RequestParseError, parse_request
-from .service_architecture import create_architecture
+import response
+from request_parser import RequestParseError, parse_request
+from service_architecture import create_architecture
 
 logger = logging.getLogger(__name__)
 

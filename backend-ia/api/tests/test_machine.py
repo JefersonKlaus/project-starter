@@ -9,7 +9,7 @@ from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from lambda_create.ai import machine
+from ai import machine
 
 
 def bad_request(message):

@@ -44,7 +44,7 @@ module "lambda_create" {
 
   lambda_function_name = "${local.prefix}-lambda-create"
   source_dir           = "${local.api_dir}/lambda_create"
-  handler              = "main.lambda_handler"
+  handler              = "main.lambda_handler" # main.py sits at the zip root
   requirements_file    = "${local.api_dir}/lambda_create/requirements.txt"
 
   environment_variables = {

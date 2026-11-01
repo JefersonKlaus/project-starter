@@ -2,8 +2,8 @@
 
 import json
 
-from . import config
-from .request_parser import get_header
+import config
+from request_parser import get_header
 
 
 def cors_headers(event):

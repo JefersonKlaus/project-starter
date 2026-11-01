@@ -2,7 +2,7 @@
 
 import logging
 
-from . import orchestrator
+import orchestrator
 
 logging.getLogger().setLevel(logging.INFO)
 

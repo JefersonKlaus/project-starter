@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from lambda_create import config
+import config
 
 KEYS = ("CORS_ORIGINS", "RAG_S3_BUCKET", "RAG_S3_KEY", "RAG_INDEX_PATH")
 
 
 @pytest.fixture
 def load_config():
-    """Reload lambda_create.config with a custom environment; restores everything afterwards."""
+    """Reload config with a custom environment; restores everything afterwards."""
     saved = {key: os.environ.get(key) for key in KEYS}
 
     def _load(**env):

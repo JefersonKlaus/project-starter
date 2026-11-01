@@ -1,7 +1,7 @@
 import json
 from unittest.mock import Mock
 
-from lambda_create import orchestrator
+import orchestrator
 
 
 def _body(response):
@@ -52,9 +52,7 @@ def test_handle_returns_500_when_service_fails(make_event, monkeypatch):
 
 
 def test_handle_adds_cors_headers_for_allowed_origin(make_event, monkeypatch):
-    monkeypatch.setattr(
-        "lambda_create.config.CORS_ORIGINS", ["https://app.example.com"]
-    )
+    monkeypatch.setattr("config.CORS_ORIGINS", ["https://app.example.com"])
     monkeypatch.setattr(orchestrator, "create_architecture", Mock(return_value={}))
 
     r = orchestrator.handle(
