@@ -51,7 +51,7 @@ main.py -> orchestrator.py -> request_parser.py (input: models.RequestPayload)
 | `ai/rag.py`               | BM25 search over `rag_index.json`                                      |
 | `ai/machine.py`           | Prompt and Groq model invocation                                       |
 | `ai/models.py`            | Output schema (`AWSArchitecture`) validated with Pydantic              |
-| `../run_local.py`         | Local tool: invokes the handler on your machine (see "Run locally")    |
+| `run_local.py`            | Local tool: invokes the handler on your machine (see "Run locally")    |
 | `../../rag/ingest.py`     | Local tool: builds `rag_index.json` from the reference Python files    |
 
 On success (`200`) the body is the `AWSArchitecture` schema plus `rag_references`:
@@ -81,6 +81,14 @@ On success (`200`) the body is the `AWSArchitecture` schema plus `rag_references
   "rag_references": ["/path/to/reference/handler.py", "..."]
 }
 ```
+
+Generation gets `MAX_TOKENS` (32k) of output per request; gpt-oss is a
+reasoning model, so its "thinking" tokens count against that budget. If the
+answer is still cut off, Groq rejects it (`json_validate_failed` with an
+unfinished `failed_generation`) and the function fails fast with `500` /
+`"The model output was cut off at ... tokens"` instead of retrying: only a
+malformed-but-complete JSON is retried (up to 3 attempts). Files whose line
+breaks came back double-escaped (`\\n`) are normalised after validation.
 
 The RAG index, the BM25 index and the Groq client are cached at module level,
 so warm containers skip the S3 download and client setup. A full run takes
@@ -175,9 +183,18 @@ Errors carry a `{"detail": ...}` body.
 
 ## Run locally
 
-`run_local.py` calls `main.lambda_handler` exactly as the Lambda runtime does:
-it builds a proxy event, loads `backend-ia/.env`, and prints the response.
-Nothing is mocked, so a real Groq call is made.
+Each Lambda folder has its own `run_local.py`, which calls `main.lambda_handler`
+exactly as the Lambda runtime does: it loads `backend-ia/.env`, builds the
+proxy event and prints the response. Nothing is mocked: Groq, S3 and your AWS
+credentials are really used. The scripts are deliberately tiny (one per Lambda,
+so two people working on different Lambdas never touch the same file) and are
+driven by variables at the top instead of command-line options:
+
+| Variable         | In               | Purpose                                                          |
+| ---------------- | ---------------- | ---------------------------------------------------------------- |
+| `EVENT`          | both             | The event passed to `main.lambda_handler` (API Gateway payload 2.0) |
+| `PROMPT`         | `lambda_create`  | Product description placed in `EVENT["body"]`                    |
+| `WRITE_CODE_DIR` | `lambda_create`  | Folder to dump the generated Terraform/Python files (`None` = off) |
 
 1. **Install the dev dependencies** (once):
 
@@ -193,39 +210,40 @@ Nothing is mocked, so a real Groq call is made.
    cp ../.env.example ../.env
    ```
 
-3. **Get a RAG index.** Either build one locally (no AWS needed):
+3. **Get a RAG index** (only for `lambda_create`). Either build one locally (no AWS needed):
 
    ```bash
    python ../rag/ingest.py --source <folder with the reference .py files> --output ../rag_index.json
    ```
 
-   `run_local.py` picks up `backend-ia/rag_index.json` or `backend-ia/rag/rag_index.json`
-   automatically (or use `RAG_INDEX_PATH` / `--index`). Or set `RAG_S3_BUCKET` in `.env` and have AWS
-   credentials in your shell to download the same file the Lambda uses.
+   `lambda_create/run_local.py` uses `RAG_INDEX_PATH` from `.env` (relative to
+   `backend-ia/`) or, failing that, `backend-ia/rag_index.json`. When neither
+   exists it falls back to `RAG_S3_BUCKET`, like the deployed function.
 
-4. **Invoke**:
+4. **Invoke** (edit the variables first if needed):
 
    ```bash
-   python run_local.py                                        # default prompt
-   python run_local.py --prompt "Crie uma API de produtos com DynamoDB"
-   python run_local.py --event event.json                     # a full proxy event, e.g. copied from the AWS console
-   python run_local.py --output result.json                   # save the response body
-   python run_local.py --write-code ./generated               # dump the Terraform/Python files it generated
-   python run_local.py --raw                                  # show statusCode/headers/body as the Lambda returns them
+   python lambda_status/run_local.py   # GET /healthcheck: are .env and AWS credentials good?
+   python lambda_create/run_local.py   # POST /prompt: generates an architecture
    ```
 
-   The exit code is `0` on HTTP 200 and `1` otherwise, so it can be used in scripts.
+   The exit code is `0` on HTTP 200 and `1` otherwise (including the `503` of an
+   unhealthy check), so they can be used in scripts. To simulate a request
+   copied from the AWS console, paste it into `EVENT`.
 
-What the script does, in order: load `.env` -> resolve the index
-(`--index` > `RAG_INDEX_PATH` > `backend-ia/rag_index.json` > S3) -> check
-`GROQ_API_KEY` -> import `main` (only now, because `config.py` reads the
-environment at import time) -> call the handler -> print / save the result.
+What each script does, in order: load `.env` -> (`create` only) point
+`RAG_INDEX_PATH` at a local index -> import `main` (only now, because
+`config.py` reads the environment at import time) -> call the handler with
+`EVENT` -> print the status and body -> (`create` only, when `WRITE_CODE_DIR`
+is set) write the generated files. Terraform excludes `run_local.py` from the
+zips, so it never reaches AWS.
 
 ### Tests
 
 ```bash
 cd backend-ia/api
-python -m pytest
+python -m pytest                       # everything
+python -m pytest tests/lambda_status   # one Lambda only
 ```
 
 The tests never call Groq or S3 (everything external is mocked) and run in CI on
@@ -267,8 +285,32 @@ result of each check:
 
 The Groq call is capped at 10 s with no retries. The model is the same one
 `lambda_create` uses (`GROQ_MODEL` overrides it). The function only needs the
-`groq` SDK (`lambda_status/requirements.txt`, shipped as a layer) plus `boto3`
-from the runtime.
+`groq` SDK and `python-dotenv` (`lambda_status/requirements.txt`, shipped as a
+layer) plus `boto3` from the runtime.
+
+The layout mirrors `lambda_create`, one responsibility per module:
+
+```
+main.py -> orchestrator.py -> service_health.py -> checks/rag_index.py | groq_api_key.py | groq_hello.py
+                           -> response.py (output)            (results: models.CheckResult / HealthReport)
+```
+
+| Module                   | Responsibility                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `main.py`                | Lambda handler; delegates to the orchestrator                                       |
+| `orchestrator.py`        | Runs the service and maps the report to `200` (healthy) or `503`                    |
+| `service_health.py`      | Registry of checks wired to `config`; runs them all, a crash never hides the others |
+| `checks/rag_index.py`    | `HeadObject` on the RAG index (S3)                                                  |
+| `checks/groq_api_key.py` | `GROQ_API_KEY` is set                                                               |
+| `checks/groq_hello.py`   | Minimal chat completion against Groq                                                |
+| `models.py`              | `CheckResult` (one check) and `HealthReport` (all checks, `healthy`, `to_dict`)     |
+| `response.py`            | Output: proxy response with JSON body (`success` / `unavailable`)                   |
+| `config.py`              | Environment variables (and `.env` for local runs)                                   |
+| `run_local.py`           | Local tool: invokes the handler on your machine (see "Run locally")               |
+
+Checks are plain functions of their inputs (`rag_index.check(bucket, key)`),
+so adding a dependency means one new module in `checks/` and one entry in
+`service_health.CHECKS`.
 
 ## Deploying
 
@@ -280,7 +322,27 @@ from its `requirements.txt`, wires both behind API Gateway (`POST /prompt`,
 automatically on pushes to `main` (development) and manually for stage/prod.
 
 Terraform does **not** create the RAG bucket nor upload the index: do that once
-per environment (see "How the RAG works"). When the Lambda runs behind API
+per environment (see "How the RAG works").
+
+### Permissions of the deploy user
+
+The IAM user behind `AWS_ACCESS_KEY_ID` (`github-deploy`) is created by hand,
+outside Terraform, and its policy must cover every service the stack touches.
+Adding API Gateway (`infra/modules/apigateway`) requires the extra permissions in
+[`infra/policies/github-deploy-api-gateway.json`](../../infra/policies/github-deploy-api-gateway.json):
+API Gateway v2 APIs **and their tags** (the provider's `default_tags` make
+`CreateApi` call the `/tags` endpoint), `lambda:AddPermission` for the routes,
+and the `/aws/apigateway/*` access log group. Attach it once per AWS account:
+
+```bash
+aws iam put-user-policy \
+  --user-name github-deploy \
+  --policy-name backend-ia-api-gateway \
+  --policy-document file://infra/policies/github-deploy-api-gateway.json
+```
+
+Without it the apply fails with `AccessDeniedException: ... is not authorized to
+perform: apigateway:POST on resource: arn:aws:apigateway:us-east-2::/tags/...`. When the Lambda runs behind API
 Gateway, use a proxy integration and configure CORS on the API (the function
 only echoes `CORS_ORIGINS`; it does not answer `OPTIONS` preflights).
 
