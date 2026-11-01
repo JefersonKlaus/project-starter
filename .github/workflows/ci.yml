@@ -44,11 +44,10 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: |
-            backend-ia/api/lambda_create/requirements.txt
-            backend-ia/api/lambda_create/requirements-dev.txt
+            backend-ia/api/requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install -r lambda_create/requirements-dev.txt pytest pytest-cov httpx
+        run: python -m pip install -r requirements-dev.txt
 
       - name: Run unit tests
         run: >
