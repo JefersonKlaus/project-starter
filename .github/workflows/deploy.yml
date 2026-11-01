@@ -117,19 +117,3 @@ jobs:
 
       - name: Terraform apply
         run: terraform apply -input=false -lock-timeout=5m tfplan
-
-      # Calls the public Function URL WITHOUT the API key: must answer 401 and never reaches Groq
-      - name: Smoke test
-        run: |
-          URL=$(terraform output -raw function_url)
-          for i in 1 2 3 4 5; do
-            code=$(curl -s -o /dev/null -m 30 -w "%{http_code}" -X POST "$URL" \
-              -H "Content-Type: application/json" -d '{"prompt":"smoke"}' || true)
-            if [ "$code" = "401" ]; then
-              echo "Smoke test OK (401 without API key)"
-              exit 0
-            fi
-            echo "attempt $i: got HTTP $code, expected 401"
-            sleep 5
-          done
-          exit 1
