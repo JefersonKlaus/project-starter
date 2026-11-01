@@ -1,7 +1,7 @@
 """Service: generate an AWS architecture (diagram, Terraform and Python) for a product description."""
 
-from .ai.machine import generate_architecture_script
-from .service_ai import get_ai_state
+from ai.machine import generate_architecture_script
+from service_ai import get_ai_state
 
 
 def create_architecture(prompt: str) -> dict:

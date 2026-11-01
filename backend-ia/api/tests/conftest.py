@@ -4,15 +4,17 @@ from pathlib import Path
 
 import pytest
 
-API_DIR = Path(__file__).resolve().parents[1]
-if str(API_DIR) not in sys.path:
-    sys.path.insert(0, str(API_DIR))
+# The Lambda zip is flat (main.py at the root), so the tests import the same
+# top-level modules the runtime sees: main, orchestrator, ai.machine, ...
+LAMBDA_CREATE_DIR = Path(__file__).resolve().parents[1] / "lambda_create"
+if str(LAMBDA_CREATE_DIR) not in sys.path:
+    sys.path.insert(0, str(LAMBDA_CREATE_DIR))
 
 
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
     """Nenhum teste espera de verdade pelo backoff do retry."""
-    monkeypatch.setattr("lambda_create.ai.machine.time.sleep", lambda _: None)
+    monkeypatch.setattr("ai.machine.time.sleep", lambda _: None)
 
 
 @pytest.fixture

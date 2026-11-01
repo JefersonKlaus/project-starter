@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from lambda_create import main
+import main
 
 
 def test_lambda_handler_delegates_to_orchestrator(make_event, monkeypatch):

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 from langchain_core.documents import Document
 
-from lambda_create.ai.rag import BM25Index, RAGEngine, load_documents, tokenize
+from ai.rag import BM25Index, RAGEngine, load_documents, tokenize
 
 
 def _doc(content, source=None):

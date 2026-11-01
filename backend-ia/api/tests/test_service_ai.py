@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from lambda_create import service_ai
+import service_ai
 
 
 def test_get_ai_state_loads_services_once(monkeypatch):

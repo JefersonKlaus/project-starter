@@ -4,9 +4,9 @@ They are cached at module level so that warm Lambda containers reuse them
 instead of reloading on every invocation.
 """
 
-from .ai.machine import load_text_model
+from ai.machine import load_text_model
 
-from .ai.rag import RAGEngine
+from ai.rag import RAGEngine
 
 ai_state = {}
 

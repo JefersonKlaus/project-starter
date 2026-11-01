@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from lambda_create import service_architecture
-from lambda_create.service_architecture import create_architecture
+import service_architecture
+from service_architecture import create_architecture
 
 
 def _ready(monkeypatch, result, documents=()):

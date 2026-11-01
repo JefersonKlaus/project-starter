@@ -3,7 +3,7 @@
 import base64
 import json
 
-from .models import RequestPayload
+from models import RequestPayload
 from pydantic import ValidationError
 
 
