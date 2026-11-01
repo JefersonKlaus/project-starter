@@ -1,4 +1,6 @@
--r requirements.txt
+# Development/test dependencies for all API Lambdas.
+-r lambda_create/requirements-dev.txt
+
 boto3==1.43.118
 requests==2.34.2
 pyflakes==4.0.3
