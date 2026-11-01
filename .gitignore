@@ -19,6 +19,7 @@ share/python-wheels/
 MANIFEST
 
 # Environments
+.env
 .envrc
 .venv
 env/
@@ -67,3 +68,7 @@ build/
 terraform.tfvars
 backend.hcl
 crash.log
+
+
+backend-ia/.gitignore
+*gz
