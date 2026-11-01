@@ -66,7 +66,8 @@ module "lambda_create" {
 }
 
 # ---------------------------------------------------------------------------
-# lambda_status: health check, returns 200 + success message (no dependencies)
+# lambda_status: health check. Verifies the dependencies of lambda_create
+# (RAG index in S3, GROQ_API_KEY set, Groq accepts the key) and returns 200 / 503
 # ---------------------------------------------------------------------------
 
 module "lambda_status" {
@@ -75,8 +76,33 @@ module "lambda_status" {
   lambda_function_name = "${local.prefix}-lambda-status"
   source_dir           = "${local.api_dir}/lambda_status"
   handler              = "main.lambda_handler"
-  memory_size          = 128
-  timeout              = 10
+  requirements_file    = "${local.api_dir}/lambda_status/requirements.txt" # groq SDK
+  memory_size          = 256
+  timeout              = 30 # the Groq "hello" call is capped at 10s by the function itself
+
+  environment_variables = {
+    GROQ_API_KEY  = var.groq_api_key
+    RAG_S3_BUCKET = local.rag_s3_bucket
+    RAG_S3_KEY    = "rag_index.json"
+  }
+
+  # HeadObject on the index; ListBucket lets S3 answer 404 (instead of 403) when it is missing
+  policy_json = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:GetObject"
+        Resource = "arn:aws:s3:::${local.rag_s3_bucket}/rag_index.json"
+      },
+      {
+        Effect    = "Allow"
+        Action    = "s3:ListBucket"
+        Resource  = "arn:aws:s3:::${local.rag_s3_bucket}"
+        Condition = { StringEquals = { "s3:prefix" = "rag_index.json" } }
+      },
+    ]
+  })
 }
 
 # ---------------------------------------------------------------------------
