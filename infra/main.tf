@@ -45,7 +45,7 @@ module "lambda_create" {
   lambda_function_name = "${local.prefix}-lambda-create"
   source_dir           = "${local.api_dir}/lambda_create"
   handler              = "lambda_create.main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_create/lambda_create/requirements.txt"
+  requirements_file    = "${local.api_dir}/lambda_create/requirements.txt"
 
   environment_variables = {
     GROQ_API_KEY  = var.groq_api_key
