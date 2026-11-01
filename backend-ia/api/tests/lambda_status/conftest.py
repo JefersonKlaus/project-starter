@@ -1,36 +1,68 @@
-import importlib.util
+import importlib
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 from botocore.exceptions import ClientError
 from groq import APIConnectionError, AuthenticationError
 
-# Both Lambdas ship a flat main.py. The lambda_create tests import theirs as the
-# top-level module `main`, so this one is loaded under a distinct module name.
-LAMBDA_STATUS_MAIN = Path(__file__).resolve().parents[2] / "lambda_status" / "main.py"
+LAMBDA_STATUS_DIR = Path(__file__).resolve().parents[2] / "lambda_status"
+
+# Top-level names of the flat lambda_status package (sub-modules such as
+# checks.rag_index are matched by their first component).
+TOP_LEVEL_MODULES = (
+    "main",
+    "orchestrator",
+    "config",
+    "models",
+    "response",
+    "service_health",
+    "checks",
+)
 
 
-def _load_status_module():
-    spec = importlib.util.spec_from_file_location(
-        "lambda_status_main", LAMBDA_STATUS_MAIN
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def _pop_lambda_modules():
+    """Remove (and return) every sys.modules entry that belongs to one of the Lambdas."""
+    popped = {}
+    for name in list(sys.modules):
+        if name.split(".")[0] in TOP_LEVEL_MODULES:
+            popped[name] = sys.modules.pop(name)
+    return popped
 
 
 @pytest.fixture(scope="session")
-def status():
-    """The lambda_status handler module (main.py)."""
-    return _load_status_module()
+def _status_modules():
+    """Import the lambda_status modules once, without disturbing lambda_create's."""
+    others = _pop_lambda_modules()
+    sys.path.insert(0, str(LAMBDA_STATUS_DIR))
+    try:
+        importlib.import_module("main")  # pulls in the whole import chain
+        modules = _pop_lambda_modules()
+    finally:
+        sys.path.remove(str(LAMBDA_STATUS_DIR))
+        sys.modules.update(others)
+    return modules
 
 
 @pytest.fixture(autouse=True)
-def clean_env(monkeypatch):
-    """Tests start without any of the variables the checks read, whatever the shell has."""
-    for name in ("GROQ_API_KEY", "RAG_S3_BUCKET", "RAG_S3_KEY"):
-        monkeypatch.delenv(name, raising=False)
+def status(_status_modules):
+    """Namespace with the lambda_status modules, made active in sys.modules for the test."""
+    others = _pop_lambda_modules()
+    sys.modules.update(_status_modules)
+    sys.path.insert(0, str(LAMBDA_STATUS_DIR))  # keeps importlib.reload on our files
+    try:
+        yield SimpleNamespace(
+            **{name: mod for name, mod in _status_modules.items() if "." not in name}
+        )
+    finally:
+        sys.path.remove(str(LAMBDA_STATUS_DIR))
+        _pop_lambda_modules()
+        sys.modules.update(others)
+
+
+# --- External dependencies (never called for real) -------------------------
 
 
 @pytest.fixture
@@ -49,23 +81,15 @@ def fake_s3(status, monkeypatch):
             return {"ContentLength": 1}
 
     client = FakeS3()
-    monkeypatch.setattr(status.boto3, "client", lambda service, **_: client)
+    monkeypatch.setattr(
+        status.checks.rag_index.boto3, "client", lambda *_, **__: client
+    )
     return client
 
 
 @pytest.fixture
 def fake_groq(status, monkeypatch):
     """Replace the Groq client class with a stub; the test decides what `create` raises."""
-
-    class FakeCompletions:
-        def __init__(self, state):
-            self.state = state
-
-        def create(self, **kwargs):
-            self.state.calls.append(kwargs)
-            if self.state.exception:
-                raise self.state.exception
-            return {"choices": [{"message": {"content": "Hello!"}}]}
 
     class State:
         def __init__(self):
@@ -75,12 +99,19 @@ def fake_groq(status, monkeypatch):
 
     state = State()
 
+    class FakeCompletions:
+        def create(self, **kwargs):
+            state.calls.append(kwargs)
+            if state.exception:
+                raise state.exception
+            return {"choices": [{"message": {"content": "Hello!"}}]}
+
     class FakeGroq:
         def __init__(self, **kwargs):
             state.init_kwargs = kwargs
-            self.chat = type("Chat", (), {"completions": FakeCompletions(state)})()
+            self.chat = SimpleNamespace(completions=FakeCompletions())
 
-    monkeypatch.setattr(status, "Groq", FakeGroq)
+    monkeypatch.setattr(status.checks.groq_hello, "Groq", FakeGroq)
     return state
 
 

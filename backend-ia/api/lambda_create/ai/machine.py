@@ -78,6 +78,12 @@ GERAÇÃO
 GROQ_MODEL = "openai/gpt-oss-120b"
 MAX_ATTEMPTS = 3
 
+# Output budget per request. gpt-oss is a reasoning model: its "thinking" tokens
+# count against this limit too, and a full CRUD (5 Lambdas, each with role,
+# policy, log group, permission, method and integration) is ~10k tokens of
+# Terraform alone. Groq allows up to 65,536 completion tokens for this model.
+MAX_TOKENS = 32000
+
 
 def load_text_model():
     """Create the Groq client. The key comes from the GROQ_API_KEY variable (.env)."""
@@ -92,12 +98,32 @@ def load_text_model():
         api_key=api_key,
         model=GROQ_MODEL,
         temperature=0.1,
-        max_tokens=12000,  # gpt-oss is a reasoning model: part of the tokens goes to its "thinking"
+        max_tokens=MAX_TOKENS,
         max_retries=2,
         timeout=120,
         # Forces a valid JSON response (the prompt already mentions JSON via format_instructions)
         model_kwargs={"response_format": {"type": "json_object"}},
     )
+
+
+class GenerationTruncatedError(RuntimeError):
+    """The model hit MAX_TOKENS before finishing the JSON document."""
+
+
+def _failed_generation(error):
+    """Text the model produced before Groq rejected it (json_validate_failed), if any."""
+    body = getattr(error, "body", None)
+    if not isinstance(body, dict):
+        return None
+    failed = (body.get("error") or {}).get("failed_generation")
+    return failed if isinstance(failed, str) else None
+
+
+def _is_truncated(error):
+    """A json_validate_failed whose output never reached the closing brace was cut
+    off by MAX_TOKENS, not malformed: retrying with the same limit cannot succeed."""
+    failed = _failed_generation(error)
+    return failed is not None and not failed.rstrip().endswith("}")
 
 
 def _invoke_with_retry(chain, payload):
@@ -109,6 +135,12 @@ def _invoke_with_retry(chain, payload):
             # Other 400 errors (bad key, bad parameters) are not worth retrying
             if isinstance(e, BadRequestError) and "json_validate_failed" not in str(e):
                 raise
+            if isinstance(e, BadRequestError) and _is_truncated(e):
+                raise GenerationTruncatedError(
+                    f"The model output was cut off at {MAX_TOKENS} tokens before the "
+                    "JSON was complete. Simplify the product description or raise "
+                    "MAX_TOKENS in ai/machine.py"
+                ) from e
             if attempt == MAX_ATTEMPTS:
                 raise
             print(
@@ -156,4 +188,23 @@ def generate_architecture_script(llm, prompt_text, rag_context):
     result["analysis_date"] = (
         date.today().isoformat()
     )  # guarantees the date even if the model gets it wrong
+    result["mermaid_diagram"] = unescape_newlines(result["mermaid_diagram"])
+    for files in result["generated_code"].values():
+        for name, content in files.items():
+            files[name] = unescape_newlines(content)
     return result
+
+
+def unescape_newlines(text):
+    r"""Undo double-escaped line breaks.
+
+    The model sometimes writes "\\n" inside the JSON strings, which decodes to
+    the two characters backslash + n instead of a line break, leaving a whole
+    file on one line. Only applies when the text has no real line break at all;
+    a multi-line file is never touched. (In a double-escaped file a "\n" inside
+    a Python string literal is indistinguishable from a line break, so it is
+    restored as a line break too: a rare, visible slip instead of a one-line file.)
+    """
+    if "\n" in text or "\\n" not in text:
+        return text
+    return text.replace("\\n", "\n")

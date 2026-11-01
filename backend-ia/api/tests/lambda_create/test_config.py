@@ -12,9 +12,11 @@ KEYS = ("CORS_ORIGINS", "RAG_S3_BUCKET", "RAG_S3_KEY", "RAG_INDEX_PATH")
 
 
 @pytest.fixture
-def load_config():
+def load_config(monkeypatch):
     """Reload config with a custom environment; restores everything afterwards."""
     saved = {key: os.environ.get(key) for key in KEYS}
+    # `from dotenv import load_dotenv` is re-evaluated on reload, so this patch applies
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: False)
 
     def _load(**env):
         for key in KEYS:
