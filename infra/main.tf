@@ -78,3 +78,27 @@ module "lambda_status" {
   memory_size          = 128
   timeout              = 10
 }
+
+# ---------------------------------------------------------------------------
+# API Gateway (HTTP API, no authentication): single public entry point
+#   POST /prompt      -> lambda_create
+#   GET  /healthcheck -> lambda_status
+# ---------------------------------------------------------------------------
+
+module "api_gateway" {
+  source = "./modules/apigateway"
+
+  api_name           = "${local.prefix}-api"
+  cors_allow_origins = var.cors_origins
+
+  routes = {
+    "POST /prompt" = {
+      function_name = module.lambda_create.function_name
+      invoke_arn    = module.lambda_create.invoke_arn
+    }
+    "GET /healthcheck" = {
+      function_name = module.lambda_status.function_name
+      invoke_arn    = module.lambda_status.invoke_arn
+    }
+  }
+}

@@ -35,7 +35,7 @@ main.py -> orchestrator.py -> request_parser.py (input: models.RequestPayload)
 
 - Python 3.12 (the Lambda runtime)
 - A virtual environment, e.g. `project-starter/.venv`
-- Dependencies installed from [lambda_create/requirements-dev.txt](lambda_create/requirements-dev.txt)
+- Dependencies installed from [requirements-dev.txt](requirements-dev.txt)
   (`requirements.txt` holds only what goes into the Lambda layer; `boto3` is
   provided by the Lambda runtime and is therefore listed as a dev dependency)
 
@@ -126,7 +126,7 @@ Nothing is mocked, so a real Groq call is made.
    ```bash
    cd backend-ia/api
    python -m venv ../../.venv && source ../../.venv/bin/activate   # Windows: ..\..\.venv\Scripts\activate
-   python -m pip install -r lambda_create/requirements-dev.txt
+   python -m pip install -r requirements-dev.txt
    ```
 
 2. **Create `backend-ia/.env`** from the example and set `GROQ_API_KEY`:
