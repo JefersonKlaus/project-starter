@@ -1,5 +1,5 @@
 # Development/test dependencies for all API Lambdas.
--r lambda_create/requirements-dev.txt
+-r lambda_create/requirements.txt
 
 boto3==1.43.118
 requests==2.34.2
