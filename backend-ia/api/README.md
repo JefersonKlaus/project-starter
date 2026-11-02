@@ -1,15 +1,15 @@
 # AWS Lambdas (`backend-ia/api`)
 
-Five Lambda functions (see `infra/`), all open: no authentication is required.
-The API Gateway of the stack is a WebSocket API (see "WebSocket API");
+Five Lambda functions (see `infra/`). The API Gateway of the stack is a
+WebSocket API authenticated with Amazon Cognito (see "WebSocket API");
 `lambda_create` and `lambda_status` are also reachable directly through their
-public Lambda Function URLs.
+public Lambda Function URLs, which have no authentication.
 
 | Lambda               | Exposed as               | Purpose                                                                  |
 | -------------------- | ------------------------ | ------------------------------------------------------------------------ |
 | `lambda_create/`     | Function URL (`POST`)    | Generates an AWS serverless architecture from a product description      |
 | `lambda_status/`     | Function URL (`GET`)     | Health check: verifies the dependencies `lambda_create` needs            |
-| `lambda_ws_connect/` | WebSocket `$connect`     | Validates the connection token (accepts everything for now)              |
+| `lambda_ws_connect/` | WebSocket `$connect`     | Verifies the Cognito token of the client opening the connection          |
 | `lambda_ws_prompt/`  | WebSocket `prompt`       | Validates the message and starts the generation asynchronously           |
 | `lambda_ws_worker/`  | (invoked by `ws_prompt`) | Runs the generation (`lambda_create`) and pushes the result to the client |
 
@@ -183,7 +183,7 @@ stack, does the same job asynchronously: you connect, send the prompt, get an
 immediate acknowledgement and receive the result as a message when it is ready.
 
 ```
-client --$connect--> lambda_ws_connect  (token validation: 200 accepts, 401 rejects)
+client --$connect--> lambda_ws_connect  (Cognito JWT verification: 200 accepts, 401 rejects)
 client --prompt----> lambda_ws_prompt   (validates, invokes the worker async, answers "accepted")
                      lambda_ws_worker   (invokes lambda_create, posts "result" to @connections)
 client <------------ {"type": "result", ...}
@@ -191,15 +191,44 @@ client <------------ {"type": "result", ...}
 
 #### How to use it, step by step
 
-**1. Connect.** The URL is the `ws_api_url` Terraform output,
-`wss://<id>.execute-api.<region>.amazonaws.com/<env>`. No credentials are
-needed today (`WS_AUTH_MODE=none`). When authentication is switched on, send
-the token as `Authorization: Bearer <token>` or, from a browser (which cannot
-set handshake headers), as `?token=<token>` in the URL. A rejected handshake
-surfaces as an HTTP `401` on the upgrade (the socket never opens); a `500`
-means the server side is misconfigured.
+**1. Get a token.** Connections are authenticated with the Cognito user pool
+Terraform creates (`cognito_user_pool_id` / `cognito_app_client_id` outputs).
+Users are created by an administrator (self sign-up is off by default):
 
-**2. Send the prompt.** Every message you send is a JSON object whose
+```bash
+POOL=$(terraform -chdir=infra output -raw cognito_user_pool_id)
+CLIENT=$(terraform -chdir=infra output -raw cognito_app_client_id)
+
+# once per user
+aws cognito-idp admin-create-user --user-pool-id "$POOL" --username alice@example.com --message-action SUPPRESS
+aws cognito-idp admin-set-user-password --user-pool-id "$POOL" --username alice@example.com --password 'Str0ng!Passw0rd' --permanent
+
+# every session: the access token is valid for 60 minutes
+TOKEN=$(aws cognito-idp initiate-auth --client-id "$CLIENT" --auth-flow USER_PASSWORD_AUTH \
+  --auth-parameters USERNAME=alice@example.com,PASSWORD='Str0ng!Passw0rd' \
+  --query AuthenticationResult.AccessToken --output text)
+```
+
+Web apps get the same tokens through Amplify / `amazon-cognito-identity-js`
+(SRP flow) with that pool and client id. Both the **access token** and the
+**ID token** are accepted.
+
+**2. Connect.** The URL is the `ws_api_url` Terraform output,
+`wss://<id>.execute-api.<region>.amazonaws.com/<env>`. Send the token as
+`Authorization: Bearer <token>` or, from a browser (which cannot set handshake
+headers), as `?token=<token>` in the URL:
+
+```bash
+wscat -c "$(terraform -chdir=infra output -raw ws_api_url)" -H "Authorization: Bearer $TOKEN"
+# or: wscat -c "$(terraform -chdir=infra output -raw ws_api_url)?token=$TOKEN"
+```
+
+A rejected handshake (missing, expired, forged token or a token of another pool
+or app client) surfaces as an HTTP `401` on the upgrade: the socket never opens.
+A `500` means the server side is misconfigured. The token is checked only on
+`$connect`; the messages that follow on that connection need no token.
+
+**3. Send the prompt.** Every message you send is a JSON object whose
 `action` field picks the route. The only route is `prompt`:
 
 ```json
@@ -212,7 +241,7 @@ means the server side is misconfigured.
 | `prompt`     | yes      | Product description, non-empty after trimming                                                               |
 | `request_id` | no       | Up to 64 characters; echoed in every answer so you can match them. A uuid4 hex is generated when absent     |
 
-**3. Read the acknowledgement.** Within milliseconds you receive exactly one of:
+**4. Read the acknowledgement.** Within milliseconds you receive exactly one of:
 
 ```json
 { "type": "accepted", "request_id": "my-id-1" }
@@ -230,7 +259,7 @@ errors; `request_id` is absent in both because nothing was parsed), and the
 worker could not be started. After an `error` nothing else will arrive for
 that request; fix the message and send it again.
 
-**4. Wait for the result.** Tens of seconds later (up to ~5 minutes, the
+**5. Wait for the result.** Tens of seconds later (up to ~5 minutes, the
 timeout of `lambda_create`) you receive exactly one of:
 
 ```json
@@ -245,9 +274,9 @@ timeout of `lambda_create`) you receive exactly one of:
 + `rag_references`, see "Architecture generation"). The request is finished
 either way; you may keep the connection open and send another prompt, or close.
 
-**5. Reassemble large results.** API Gateway caps a WebSocket message at
+**6. Reassemble large results.** API Gateway caps a WebSocket message at
 128 KB and a complete architecture can exceed it. When the `result` message is
-bigger than `WS_MAX_MESSAGE_BYTES` (120 KB), step 4 delivers the JSON text of
+bigger than `WS_MAX_MESSAGE_BYTES` (120 KB), step 5 delivers the JSON text of
 `result` in pieces instead, in order:
 
 ```json
@@ -273,7 +302,7 @@ re-delivered, so keep the socket open until the answer arrives.
 With [`wscat`](https://github.com/websockets/wscat) (`npm i -g wscat`):
 
 ```bash
-wscat -c "$(terraform -chdir=infra output -raw ws_api_url)"
+wscat -c "$(terraform -chdir=infra output -raw ws_api_url)" -H "Authorization: Bearer $TOKEN"
 > {"action": "prompt", "prompt": "Generate a TO DO list application without Cognito authentication", "request_id": "demo"}
 < {"type": "accepted", "request_id": "demo"}
 < {"type": "result", "request_id": "demo", "result": {"analysis_date": "2026-10-26", ...}}
@@ -283,7 +312,7 @@ The same session from a browser, handling every message type including chunk
 reassembly:
 
 ```javascript
-const ws = new WebSocket(wsApiUrl);            // + "?token=..." once authentication is on
+const ws = new WebSocket(`${wsApiUrl}?token=${accessToken}`);   // token from Amplify / Cognito
 const chunks = {};                             // request_id -> data pieces
 
 ws.onopen = () => ws.send(JSON.stringify({ action: "prompt", prompt: "Generate a TO DO list application", request_id: "demo" }));
@@ -315,19 +344,29 @@ Decides whether the handshake is accepted. API Gateway only looks at the
 status code (2xx accepts, anything else rejects; the body never reaches the
 client). The token comes from `Authorization: Bearer <token>` or, since
 browsers cannot set headers on a WebSocket handshake, from `?token=<token>` in
-the connection URL. **For now no authentication is required**: `WS_AUTH_MODE`
-is `none` and every connection is accepted. The validation is a strategy
-(`token_validator.TokenValidator`), so enabling it later is configuration plus,
-if needed, one new class:
+the connection URL. WebSocket APIs have no built-in Cognito/JWT authorizer
+(HTTP and REST APIs only), so this function is the authorizer. The validation
+is a strategy (`token_validator.TokenValidator`) chosen by `WS_AUTH_MODE`:
 
-| `WS_AUTH_MODE`  | Behaviour                                                       |
-| --------------- | --------------------------------------------------------------- |
-| `none`          | Accept every connection (default, current phase)                |
-| `shared_secret` | Accept only when the token equals `WS_AUTH_TOKEN` (fails closed) |
+| `WS_AUTH_MODE`  | Behaviour                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------- |
+| `cognito`       | Accept a valid JWT of the Cognito user pool (deployed default, see below)                   |
+| `shared_secret` | Accept only when the token equals `WS_AUTH_TOKEN` (fails closed)                            |
+| `none`          | Accept every connection (default when the variable is unset; `-var ws_auth_mode=none` in Terraform) |
+
+`CognitoValidator` (PyJWT) verifies the token's **signature** against the pool's
+public keys (`<issuer>/.well-known/jwks.json`, downloaded once per container and
+cached), its **issuer** (`https://cognito-idp.<region>.amazonaws.com/<pool id>`),
+its **expiry**, that it is an **access token** (`token_use=access`, claim
+`client_id`) or an **ID token** (`token_use=id`, claim `aud`) and that it was
+issued for **our app client**. Anything else is a `401` with a reason in the
+access logs (`invalid token: Signature has expired`, `... issued for another
+app client`, ...). The token itself is never logged. A missing pool/client
+configuration fails closed with `500`.
 
 ```
 main.py -> orchestrator.py -> request_parser.py (input: models.ConnectionRequest)
-                           -> service_auth.py -> token_validator.py (AllowAllValidator | SharedSecretValidator)
+                           -> service_auth.py -> token_validator.py (CognitoValidator | SharedSecretValidator | AllowAllValidator)
                            -> response.py (output: 200 accept / 401 reject / 500 misconfigured)
 ```
 
@@ -337,10 +376,10 @@ main.py -> orchestrator.py -> request_parser.py (input: models.ConnectionRequest
 | `orchestrator.py`    | Runs parse -> authenticate -> response and maps failures to statuses        |
 | `request_parser.py`  | Serializer: `$connect` event -> `models.ConnectionRequest` (token, id, IP) |
 | `models.py`          | `ConnectionRequest` (input) and `AuthDecision` (allow / deny + reason)      |
-| `token_validator.py` | `TokenValidator` protocol and its implementations                           |
-| `service_auth.py`    | Registry `VALIDATORS` wired to `config`; applies the configured validator  |
+| `token_validator.py` | `TokenValidator` protocol and its implementations (Cognito JWT, shared secret, allow all) |
+| `service_auth.py`    | Registry `VALIDATORS` wired to `config`; builds the validator once per container |
 | `response.py`        | Output: proxy response (only the status code matters to API Gateway)        |
-| `config.py`          | `WS_AUTH_MODE`, `WS_AUTH_TOKEN`                                             |
+| `config.py`          | `WS_AUTH_MODE`, `COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID`, `WS_AUTH_TOKEN` |
 
 #### `lambda_ws_prompt` (`prompt`)
 
@@ -403,7 +442,9 @@ Environment variables of the WebSocket Lambdas (set by Terraform in AWS):
 
 | Variable                 | Lambda       | Required | Description                                                              |
 | ------------------------ | ------------ | -------- | ------------------------------------------------------------------------ |
-| `WS_AUTH_MODE`           | `ws_connect` | no       | `none` (default) or `shared_secret`                                      |
+| `WS_AUTH_MODE`           | `ws_connect` | no       | `cognito` (deployed default), `shared_secret` or `none` (default when unset) |
+| `COGNITO_USER_POOL_ID`   | `ws_connect` | yes*     | User pool whose tokens are accepted (*when `WS_AUTH_MODE=cognito`)       |
+| `COGNITO_APP_CLIENT_ID`  | `ws_connect` | yes*     | App client the tokens must be issued for (*when `WS_AUTH_MODE=cognito`)  |
 | `WS_AUTH_TOKEN`          | `ws_connect` | no*      | Secret clients must present (*required when `WS_AUTH_MODE=shared_secret`) |
 | `WORKER_FUNCTION_NAME`   | `ws_prompt`  | yes      | Name of `lambda_ws_worker`                                               |
 | `CREATE_FUNCTION_NAME`   | `ws_worker`  | yes      | Name of `lambda_create`                                                  |
@@ -541,7 +582,7 @@ driven by variables at the top instead of command-line options:
    ```bash
    python lambda_status/run_local.py       # health check: are .env and AWS credentials good?
    python lambda_create/run_local.py       # generates an architecture
-   python lambda_ws_connect/run_local.py   # $connect: is the handshake accepted? (no AWS needed)
+   python lambda_ws_connect/run_local.py   # $connect: is TOKEN accepted? (COGNITO_* in .env, no AWS credentials)
    python lambda_ws_prompt/run_local.py    # prompt: invokes the deployed worker (WORKER_FUNCTION_NAME)
    python lambda_ws_worker/run_local.py    # worker: runs the deployed lambda_create (CREATE_FUNCTION_NAME)
    ```
@@ -603,6 +644,13 @@ and `lambda_status`, wires the WebSocket Lambdas behind API Gateway (routes
 `$connect` and `prompt`) and applies to the environment's AWS account. It runs
 automatically on pushes to `main` (development) and manually for stage/prod.
 
+Authentication is `infra/modules/cognito`: a user pool (e-mail sign-in, strong
+passwords, admin-created users unless `-var cognito_allow_self_signup=true`,
+deletion protection in prod) and one public app client (no secret; SRP for
+browsers, `USER_PASSWORD_AUTH` for the CLI; tokens valid 60 minutes, refresh
+30 days). Its ids are passed to `lambda_ws_connect`, which verifies the tokens
+(`ws_auth_mode`, default `cognito`). Terraform does not create users.
+
 The WebSocket API is `infra/modules/apigateway_websocket`, the only API Gateway
 of the stack: one Lambda proxy integration per route, a `$default`
 route response for the routes that answer the client, an explicit deployment
@@ -641,7 +689,10 @@ deploy user to manage its asynchronous-invocation config
 and the account-level logging role: `apigateway:GET`/`apigateway:PATCH` on
 `arn:aws:apigateway:<region>::/account` plus `iam:PassRole` on
 `<env>-backend-ia-apigateway-logs-role` (role creation itself is already
-covered by the permissions the Lambda execution roles need).
+covered by the permissions the Lambda execution roles need). The Cognito module
+needs `cognito-idp:CreateUserPool`, `cognito-idp:CreateUserPoolClient` and the
+matching `Describe*`, `Update*`, `Delete*`, `TagResource`/`UntagResource`/
+`ListTagsForResource` actions on `arn:aws:cognito-idp:<region>:<account>:userpool/*`.
 Attach it once per AWS account:
 
 ```bash

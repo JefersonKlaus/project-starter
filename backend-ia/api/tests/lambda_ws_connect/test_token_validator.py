@@ -41,6 +41,10 @@ def test_shared_secret_requires_a_secret(ws_connect, expected):
 def test_every_registered_validator_satisfies_the_protocol(ws_connect, monkeypatch):
     """Whatever WS_AUTH_MODE selects must expose validate(token) -> AuthDecision."""
     monkeypatch.setattr(ws_connect.config, "WS_AUTH_TOKEN", "s3cret")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_USER_POOL_ID", "us-east-2_Pool")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_APP_CLIENT_ID", "client")
     for mode, factory in ws_connect.service_auth.VALIDATORS.items():
-        decision = factory().validate("s3cret")
+        decision = factory().validate(
+            ""
+        )  # no network: an empty token is decided locally
         assert isinstance(decision, ws_connect.models.AuthDecision), mode

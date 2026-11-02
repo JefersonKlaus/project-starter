@@ -106,14 +106,24 @@ module "lambda_status" {
 }
 
 # ---------------------------------------------------------------------------
-# WebSocket API (no authentication for now): the single API Gateway of the stack.
+# WebSocket API, authenticated with Cognito: the single API Gateway of the stack.
 # lambda_create and lambda_status keep their public Function URLs for direct HTTP
 # calls (outputs lambda_create_url / lambda_status_url). The client keeps a
 # connection open and receives the result when it is ready.
-#   $connect -> lambda_ws_connect  validates the token (accepts everything today)
+#   $connect -> lambda_ws_connect  verifies the Cognito token (JWT) of the client
 #   prompt   -> lambda_ws_prompt   validates the message, invokes the worker (async), acks
 #              lambda_ws_worker   runs lambda_create and pushes the result to the client
 # ---------------------------------------------------------------------------
+
+# Users allowed to connect. WebSocket APIs have no Cognito authorizer, so the tokens
+# are verified by lambda_ws_connect (WS_AUTH_MODE=cognito) against the pool's JWKS.
+module "cognito" {
+  source = "./modules/cognito"
+
+  name                = "${local.prefix}-ws-users"
+  allow_self_signup   = var.cognito_allow_self_signup
+  deletion_protection = var.environment == "prod"
+}
 
 module "lambda_ws_connect" {
   source = "./modules/lambda"
@@ -121,13 +131,15 @@ module "lambda_ws_connect" {
   lambda_function_name = "${local.prefix}-lambda-ws-connect"
   source_dir           = "${local.api_dir}/lambda_ws_connect"
   handler              = "main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_ws_connect/requirements.txt"
+  requirements_file    = "${local.api_dir}/lambda_ws_connect/requirements.txt" # PyJWT (+ cryptography)
   memory_size          = 256
   timeout              = 10 # the handshake must be answered quickly
   create_function_url  = false
 
   environment_variables = {
-    WS_AUTH_MODE = "none" # "shared_secret" (+ WS_AUTH_TOKEN) once authentication is required
+    WS_AUTH_MODE          = var.ws_auth_mode # "cognito"; "none" disables authentication
+    COGNITO_USER_POOL_ID  = module.cognito.user_pool_id
+    COGNITO_APP_CLIENT_ID = module.cognito.app_client_id
   }
 }
 

@@ -59,3 +59,40 @@ def test_authenticate_accepts_an_injected_validator(ws_connect):
 
     assert ws_connect.service_auth.authenticate(request, validator) is decision
     validator.validate.assert_called_once_with("t")
+
+
+def test_get_validator_builds_cognito_from_config(ws_connect, monkeypatch):
+    monkeypatch.setattr(ws_connect.config, "WS_AUTH_MODE", "cognito")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_USER_POOL_ID", "us-east-2_Pool")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_APP_CLIENT_ID", "client")
+
+    validator = ws_connect.service_auth.get_validator()
+
+    assert isinstance(validator, ws_connect.token_validator.CognitoValidator)
+    assert (
+        validator.issuer == "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_Pool"
+    )
+
+
+def test_get_validator_fails_closed_without_cognito_settings(ws_connect, monkeypatch):
+    monkeypatch.setattr(ws_connect.config, "WS_AUTH_MODE", "cognito")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_USER_POOL_ID", None)
+    monkeypatch.setattr(ws_connect.config, "COGNITO_APP_CLIENT_ID", "client")
+
+    with pytest.raises(
+        ws_connect.service_auth.AuthConfigurationError,
+        match="WS_AUTH_MODE=cognito: CognitoValidator needs",
+    ):
+        ws_connect.service_auth.get_validator()
+
+
+def test_get_validator_is_built_once_per_mode(ws_connect, monkeypatch):
+    """The Cognito validator caches the JWKS, so it must survive across invocations."""
+    monkeypatch.setattr(ws_connect.config, "WS_AUTH_MODE", "cognito")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_USER_POOL_ID", "us-east-2_Pool")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_APP_CLIENT_ID", "client")
+
+    first = ws_connect.service_auth.get_validator()
+
+    assert first is ws_connect.service_auth.get_validator()
+    assert first is not ws_connect.service_auth.get_validator("none")

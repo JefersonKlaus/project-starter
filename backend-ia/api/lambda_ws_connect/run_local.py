@@ -3,9 +3,10 @@
     cd backend-ia/api/lambda_ws_connect
     python run_local.py
 
-Settings come from backend-ia/.env (WS_AUTH_MODE, WS_AUTH_TOKEN; both optional).
-Edit TOKEN / EVENT below to simulate another handshake. Exit code 0 on HTTP 200
-(connection accepted), 1 otherwise.
+Settings come from backend-ia/.env: WS_AUTH_MODE (none, shared_secret or cognito)
+and, for cognito, COGNITO_USER_POOL_ID / COGNITO_APP_CLIENT_ID (the JWKS is really
+fetched from Cognito). Put a token obtained with `aws cognito-idp initiate-auth`
+in TOKEN to test it. Exit code 0 on HTTP 200 (connection accepted), 1 otherwise.
 """
 
 import json
