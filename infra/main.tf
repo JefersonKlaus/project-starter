@@ -106,32 +106,10 @@ module "lambda_status" {
 }
 
 # ---------------------------------------------------------------------------
-# API Gateway (HTTP API, no authentication): single public entry point
-#   POST /prompt      -> lambda_create
-#   GET  /healthcheck -> lambda_status
-# ---------------------------------------------------------------------------
-
-module "api_gateway" {
-  source = "./modules/apigateway"
-
-  api_name           = "${local.prefix}-api"
-  cors_allow_origins = var.cors_origins
-
-  routes = {
-    "POST /prompt" = {
-      function_name = module.lambda_create.function_name
-      invoke_arn    = module.lambda_create.invoke_arn
-    }
-    "GET /healthcheck" = {
-      function_name = module.lambda_status.function_name
-      invoke_arn    = module.lambda_status.invoke_arn
-    }
-  }
-}
-
-# ---------------------------------------------------------------------------
-# WebSocket API (no authentication for now): the same generation, but the client
-# keeps a connection open and receives the result when it is ready.
+# WebSocket API (no authentication for now): the single API Gateway of the stack.
+# lambda_create and lambda_status keep their public Function URLs for direct HTTP
+# calls (outputs lambda_create_url / lambda_status_url). The client keeps a
+# connection open and receives the result when it is ready.
 #   $connect -> lambda_ws_connect  validates the token (accepts everything today)
 #   prompt   -> lambda_ws_prompt   validates the message, invokes the worker (async), acks
 #              lambda_ws_worker   runs lambda_create and pushes the result to the client
