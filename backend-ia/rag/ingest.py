@@ -191,6 +191,8 @@ def split_documents(
 
 
 def save_index(chunks: list[Document], output: Path) -> None:
+    if output.is_dir():
+        sys.exit(f"--output must be a file name, not a folder: {output}")
     index = {
         "documents": [
             {"page_content": chunk.page_content, "metadata": chunk.metadata}

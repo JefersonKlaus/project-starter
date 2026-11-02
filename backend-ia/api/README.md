@@ -308,6 +308,20 @@ wscat -c "$(terraform -chdir=infra output -raw ws_api_url)" -H "Authorization: B
 < {"type": "result", "request_id": "demo", "result": {"analysis_date": "2026-10-26", ...}}
 ```
 
+`backend-ia/scripts/call_api.py` does the whole sequence from Python (Cognito
+login with `USER_PASSWORD_AUTH` in `us-east-2`, connect, prompt, chunk
+reassembly, save to `resultado_arquitetura.json`):
+
+```bash
+pip install boto3 websockets
+python backend-ia/scripts/call_api.py <user> <pass> <cognito_client_id> <ws_api> [--stage dev]
+# e.g. python backend-ia/scripts/call_api.py alice@example.com 'Str0ng!Passw0rd' 1h57kf5cpq17m0eml12EXAMPLE abc123
+```
+
+`<cognito_client_id>` is the `cognito_app_client_id` output; `<ws_api>` is the
+API id (`abc123`, combined with `--stage`, default `dev`) or the full
+`ws_api_url` output.
+
 The same session from a browser, handling every message type including chunk
 reassembly:
 
