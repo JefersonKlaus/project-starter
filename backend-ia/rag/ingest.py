@@ -1,97 +1,246 @@
-"""Builds rag_index.json, the reference index read by the Lambda (BM25 search, no embeddings).
+"""Builds rag_index.json, the reference index read by lambda_create (BM25 search, no embeddings).
 
-Run it locally every time the reference code changes, then upload the result:
+Point it at one or more reference projects. Every supported source file (Python,
+Terraform, Markdown, YAML/JSON, shell, ...) is split into chunks; each chunk keeps
+the path it came from (<project folder>/<relative path>) as its `source`.
 
-    cd backend-ia/rag
-    python scripts/ingest.py                                  # reads ./api, writes ./rag_index.json
-    python scripts/ingest.py --source ./references --output rag_index.json
+    cd backend-ia
+    python rag/ingest.py --source ../reference-project            # one project
+    python rag/ingest.py --source ../todo-api ../blog-api --output rag_index.json
     aws s3 cp rag_index.json s3://<bucket>/rag_index.json
 
+Run it again every time the reference projects change, then upload the result.
 Only dependency besides langchain-core: langchain-text-splitters (requirements-dev.txt).
 """
 
 import argparse
 import json
+import sys
+from collections import Counter
 from pathlib import Path
-from typing import List
 
 from langchain_core.documents import Document
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
 
+# --- What gets indexed -------------------------------------------------------
+
+# Languages with a syntax-aware splitter in langchain (split on def/class/heading...)
+LANGUAGES = {
+    ".py": Language.PYTHON,
+    ".md": Language.MARKDOWN,
+    ".js": Language.JS,
+    ".ts": Language.TS,
+    ".go": Language.GO,
+    ".java": Language.JAVA,
+    ".html": Language.HTML,
+}
+
+# Terraform/HCL has no splitter in langchain: split on top-level blocks instead
+TERRAFORM_EXTENSIONS = {".tf", ".tfvars", ".hcl"}
+TERRAFORM_SEPARATORS = [
+    "\nresource ",
+    "\ndata ",
+    "\nmodule ",
+    "\nvariable ",
+    "\noutput ",
+    "\nlocals ",
+    "\nprovider ",
+    "\nterraform ",
+    "\n\n",
+    "\n",
+    " ",
+    "",
+]
+
+# Everything else worth reading, split on blank lines / lines
+PLAIN_EXTENSIONS = {
+    ".yml",
+    ".yaml",
+    ".json",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".txt",
+    ".sh",
+    ".sql",
+}
+
+SUPPORTED_EXTENSIONS = set(LANGUAGES) | TERRAFORM_EXTENSIONS | PLAIN_EXTENSIONS
+
 # Folders that are never useful as reference implementations
-EXCLUDED_DIRS = {"tests", "__pycache__", ".venv", "build", ".git"}
+EXCLUDED_DIRS = {
+    "tests",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".git",
+    ".terraform",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".idea",
+    ".vscode",
+    "build",
+    "dist",
+    "zip",
+}
+
+# Generated or machine-owned files: noise for the model
+EXCLUDED_FILES = {
+    "rag_index.json",
+    "package-lock.json",
+    "yarn.lock",
+    "poetry.lock",
+    ".terraform.lock.hcl",
+}
+EXCLUDED_SUFFIXES = (".tfstate", ".tfstate.backup", ".min.js")
+
+# Bigger files are almost always generated output, not reference code
+MAX_FILE_BYTES = 200_000
 
 
-# Step 1: read the source code to build the initial documents.
-def carregar_arquivos_python(diretorio: Path) -> List[Document]:
-    print(f"Reading Python files from directory: {diretorio}...")
-    documentos = []
-    for caminho in sorted(diretorio.rglob("*.py")):
-        relativo = caminho.relative_to(diretorio)
-        if EXCLUDED_DIRS.intersection(relativo.parts):
+# --- Step 1: read the source files of every project ------------------------
+
+
+def is_excluded(path: Path, root: Path) -> bool:
+    relative = path.relative_to(root)
+    return (
+        bool(EXCLUDED_DIRS.intersection(relative.parts[:-1]))
+        or path.name in EXCLUDED_FILES
+        or path.name.endswith(EXCLUDED_SUFFIXES)
+        or path.suffix.lower() not in SUPPORTED_EXTENSIONS
+        or path.stat().st_size > MAX_FILE_BYTES
+    )
+
+
+def load_project(root: Path) -> list[Document]:
+    """One Document per supported file under `root` (source = <root name>/<relative path>)."""
+    print(f"Reading {root}...")
+    documents = []
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if is_excluded(path, root):
             continue
-        documentos.append(
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            print(f"  skipping {path.relative_to(root)} (not UTF-8 text)")
+            continue
+        if not content.strip():
+            continue
+        documents.append(
             Document(
-                page_content=caminho.read_text(encoding="utf-8"),
+                page_content=content,
                 # Relative path: keeps local folders out of the prompt and of rag_references
-                metadata={"source": relativo.as_posix()},
+                metadata={
+                    "source": f"{root.name}/{path.relative_to(root).as_posix()}",
+                    "type": path.suffix.lower(),
+                },
             )
         )
-    print(f"Found {len(documentos)} Python files.")
-    return documentos
+    by_type = Counter(doc.metadata["type"] for doc in documents)
+    summary = ", ".join(f"{n} {ext}" for ext, n in sorted(by_type.items()))
+    print(f"  {len(documents)} file(s): {summary or 'none'}")
+    return documents
 
 
-# Step 2: split large files into chunks to improve retrieval.
-def dividir_codigo_python(
-    documentos_brutos: List[Document],
-    chunk_size: int = 1000,
-    chunk_overlap: int = 200,
-) -> List[Document]:
-    print("Splitting code into chunks...")
-    text_splitter = RecursiveCharacterTextSplitter.from_language(
-        language=Language.PYTHON, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+def load_projects(roots: list[Path]) -> list[Document]:
+    documents = []
+    for root in roots:
+        if not root.is_dir():
+            sys.exit(f"Not a directory: {root}")
+        documents.extend(load_project(root))
+    return documents
+
+
+# --- Step 2: split large files into chunks to improve retrieval --------------
+
+
+def make_splitter(extension: str, chunk_size: int, chunk_overlap: int):
+    if extension in LANGUAGES:
+        return RecursiveCharacterTextSplitter.from_language(
+            LANGUAGES[extension], chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
+    if extension in TERRAFORM_EXTENSIONS:
+        return RecursiveCharacterTextSplitter(
+            separators=TERRAFORM_SEPARATORS,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+    return RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap
     )
-    documentos_processados = text_splitter.split_documents(documentos_brutos)
-    print(f"The files were split into {len(documentos_processados)} chunks.")
-    return documentos_processados
 
 
-# Step 3: save the chunks in the format read by the Lambda (rag.py -> load_documents).
-def salvar_indice_json(documentos: List[Document], caminho_saida: Path) -> None:
-    indice = {
+def split_documents(
+    documents: list[Document], chunk_size: int = 1000, chunk_overlap: int = 200
+) -> list[Document]:
+    """Split every document with the splitter of its file type, keeping the input order."""
+    print("Splitting code into chunks...")
+    splitters = {}
+    chunks = []
+    for document in documents:
+        extension = document.metadata["type"]
+        if extension not in splitters:
+            splitters[extension] = make_splitter(extension, chunk_size, chunk_overlap)
+        chunks.extend(splitters[extension].split_documents([document]))
+    print(f"The files were split into {len(chunks)} chunks.")
+    return chunks
+
+
+# --- Step 3: save in the format read by the Lambda (ai/rag.py -> load_documents)
+
+
+def save_index(chunks: list[Document], output: Path) -> None:
+    index = {
         "documents": [
-            {"page_content": doc.page_content, "metadata": doc.metadata}
-            for doc in documentos
+            {"page_content": chunk.page_content, "metadata": chunk.metadata}
+            for chunk in chunks
         ]
     }
-    caminho_saida.write_text(
-        json.dumps(indice, ensure_ascii=False, indent=1), encoding="utf-8"
-    )
-    print(f"✅ Index saved with {len(documentos)} chunks in: {caminho_saida}")
+    output.write_text(json.dumps(index, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"Index saved with {len(chunks)} chunks in: {output}")
 
 
-# Orchestrates the pipeline from the project directory without relying on machine-specific paths.
-def orquestrar_ingestao_de_codigo(
-    pasta_scripts: str | None = None,
-    caminho_saida: str | None = None,
+# --- Pipeline -----------------------------------------------------------------
+
+
+def ingest(
+    sources: list[str], output: str, chunk_size: int = 1000, chunk_overlap: int = 200
 ) -> None:
-    base_dir = Path(__file__).resolve().parents[1]
+    documents = load_projects([Path(source).resolve() for source in sources])
+    if not documents:
+        extensions = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+        sys.exit(
+            "No supported files found: nothing to index.\n"
+            f"Looked for {extensions} outside {sorted(EXCLUDED_DIRS)}."
+        )
+    chunks = split_documents(documents, chunk_size, chunk_overlap)
+    save_index(chunks, Path(output))
 
-    pasta = Path(pasta_scripts) if pasta_scripts else base_dir / "api"
-    saida = Path(caminho_saida) if caminho_saida else base_dir / "rag_index.json"
 
-    docs_brutos = carregar_arquivos_python(pasta)
-    docs_processados = dividir_codigo_python(docs_brutos)
-    salvar_indice_json(docs_processados, saida)
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--source",
+        nargs="+",
+        required=True,
+        metavar="DIR",
+        help="One or more reference projects (folders) to index",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(Path(__file__).resolve().parents[1] / "rag_index.json"),
+        help="Destination JSON file (default: backend-ia/rag_index.json)",
+    )
+    parser.add_argument(
+        "--chunk-size", type=int, default=1000, help="characters per chunk"
+    )
+    parser.add_argument(
+        "--chunk-overlap", type=int, default=200, help="characters shared by neighbours"
+    )
+    args = parser.parse_args()
+    ingest(args.source, args.output, args.chunk_size, args.chunk_overlap)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument(
-        "--source", help="Directory with the reference Python files (default: ../api)"
-    )
-    parser.add_argument(
-        "--output", help="Destination JSON file (default: ../rag_index.json)"
-    )
-    args = parser.parse_args()
-    orquestrar_ingestao_de_codigo(args.source, args.output)
+    main()
