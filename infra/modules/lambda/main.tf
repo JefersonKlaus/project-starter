@@ -105,8 +105,21 @@ resource "aws_lambda_function" "this" {
   depends_on = [aws_cloudwatch_log_group.this, aws_iam_role_policy_attachment.logs]
 }
 
-# Public endpoint. No CORS block here: the Python code builds its own CORS headers.
+# Public endpoint (optional). No CORS block here: the Python code builds its own CORS headers.
 resource "aws_lambda_function_url" "this" {
+  count = var.create_function_url ? 1 : 0
+
   function_name      = aws_lambda_function.this.function_name
   authorization_type = "NONE"
+}
+
+# --- Asynchronous invocations (optional) -----------------------------------
+# Only created when the caller sets maximum_retry_attempts: by default Lambda retries
+# a failed asynchronous invocation twice, which is undesirable for expensive jobs.
+
+resource "aws_lambda_function_event_invoke_config" "this" {
+  count = var.maximum_retry_attempts == null ? 0 : 1
+
+  function_name          = aws_lambda_function.this.function_name
+  maximum_retry_attempts = var.maximum_retry_attempts
 }
