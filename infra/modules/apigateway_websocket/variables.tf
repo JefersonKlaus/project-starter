@@ -35,6 +35,12 @@ variable "stage_name" {
   type        = string
 }
 
+variable "enable_access_logs" {
+  description = "Write access logs to CloudWatch. Requires the account-level CloudWatch Logs role of API Gateway (aws_api_gateway_account) to be set."
+  type        = bool
+  default     = true
+}
+
 variable "log_retention_in_days" {
   description = "Retention of the access log group"
   type        = number

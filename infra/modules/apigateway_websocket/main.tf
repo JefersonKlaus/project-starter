@@ -85,7 +85,11 @@ resource "aws_apigatewayv2_deployment" "this" {
   depends_on = [aws_apigatewayv2_route.this, aws_apigatewayv2_route_response.this]
 }
 
+# Access logs are optional: unlike HTTP APIs, a WebSocket stage can only log when the
+# account-level CloudWatch Logs role of API Gateway is set (see infra/apigateway_account.tf).
 resource "aws_cloudwatch_log_group" "access" {
+  count = var.enable_access_logs ? 1 : 0
+
   name              = "/aws/apigateway/${var.api_name}"
   retention_in_days = var.log_retention_in_days
 }
@@ -95,19 +99,23 @@ resource "aws_apigatewayv2_stage" "this" {
   name          = var.stage_name # served at wss://<id>.execute-api.<region>.amazonaws.com/<stage>
   deployment_id = aws_apigatewayv2_deployment.this.id
 
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.access.arn
-    format = jsonencode({
-      requestId        = "$context.requestId"
-      requestTime      = "$context.requestTime"
-      connectionId     = "$context.connectionId"
-      eventType        = "$context.eventType"
-      routeKey         = "$context.routeKey"
-      messageDirection = "$context.messageDirection"
-      status           = "$context.status"
-      integrationError = "$context.integration.error"
-      ip               = "$context.identity.sourceIp"
-      userAgent        = "$context.identity.userAgent"
-    })
+  dynamic "access_log_settings" {
+    for_each = var.enable_access_logs ? [1] : []
+
+    content {
+      destination_arn = aws_cloudwatch_log_group.access[0].arn
+      format = jsonencode({
+        requestId        = "$context.requestId"
+        requestTime      = "$context.requestTime"
+        connectionId     = "$context.connectionId"
+        eventType        = "$context.eventType"
+        routeKey         = "$context.routeKey"
+        messageDirection = "$context.messageDirection"
+        status           = "$context.status"
+        integrationError = "$context.integration.error"
+        ip               = "$context.identity.sourceIp"
+        userAgent        = "$context.identity.userAgent"
+      })
+    }
   }
 }

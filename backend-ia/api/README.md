@@ -504,6 +504,16 @@ Function URL; `lambda_ws_prompt` may only invoke the worker and
 `lambda_ws_worker` may only invoke `lambda_create` and call
 `execute-api:ManageConnections` on this API.
 
+Unlike HTTP APIs, a WebSocket stage can only write access logs when API
+Gateway's **account-level** "CloudWatch Logs role ARN" is set (otherwise
+`CreateStage` fails with `CloudWatch Logs role ARN must be set in account
+settings to enable logging`). `infra/apigateway_account.tf` creates that role
+(`AmazonAPIGatewayPushToCloudWatchLogs`) and sets it with
+`aws_api_gateway_account`; the WebSocket module waits for it. It is one setting
+per AWS account and region, so if another stack already owns it use
+`-var manage_api_gateway_account=false`, and to deploy without access logs at
+all use `-var ws_access_logs=false`.
+
 Terraform does **not** create the RAG bucket nor upload the index: do that once
 per environment (see "How the RAG works").
 
@@ -519,7 +529,11 @@ and the `/aws/apigateway/*` access log group. The WebSocket API uses the same
 API Gateway v2 permissions; the worker additionally needs the deploy user to
 manage its asynchronous-invocation config
 (`lambda:PutFunctionEventInvokeConfig`, `lambda:GetFunctionEventInvokeConfig`,
-`lambda:UpdateFunctionEventInvokeConfig`, `lambda:DeleteFunctionEventInvokeConfig`).
+`lambda:UpdateFunctionEventInvokeConfig`, `lambda:DeleteFunctionEventInvokeConfig`)
+and the account-level logging role: `apigateway:GET`/`apigateway:PATCH` on
+`arn:aws:apigateway:<region>::/account` plus `iam:PassRole` on
+`<env>-backend-ia-apigateway-logs-role` (role creation itself is already
+covered by the permissions the Lambda execution roles need).
 Attach it once per AWS account:
 
 ```bash

@@ -220,8 +220,9 @@ module "lambda_ws_worker" {
 module "api_gateway_websocket" {
   source = "./modules/apigateway_websocket"
 
-  api_name   = "${local.prefix}-ws-api"
-  stage_name = var.environment # wss://<id>.execute-api.<region>.amazonaws.com/<env>
+  api_name           = "${local.prefix}-ws-api"
+  stage_name         = var.environment # wss://<id>.execute-api.<region>.amazonaws.com/<env>
+  enable_access_logs = var.ws_access_logs
 
   routes = {
     "$connect" = {
@@ -234,4 +235,7 @@ module "api_gateway_websocket" {
       respond       = true # the client receives the "accepted" / error acknowledgement
     }
   }
+
+  # The stage's access logs need the account-level CloudWatch role to exist first
+  depends_on = [aws_api_gateway_account.this]
 }

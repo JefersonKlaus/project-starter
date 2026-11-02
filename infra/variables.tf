@@ -34,3 +34,15 @@ variable "rag_bucket_name" {
   description = "Base name of the RAG bucket; its prefix is sandbox, stage or production according to the environment. Set with TF_VAR_rag_bucket_name."
   type        = string
 }
+
+variable "manage_api_gateway_account" {
+  description = "Manage the account-level CloudWatch Logs role of API Gateway here (required by WebSocket access logs; one per account and region). Set to false if another stack owns it."
+  type        = bool
+  default     = true
+}
+
+variable "ws_access_logs" {
+  description = "Write access logs of the WebSocket API to CloudWatch. Needs the account-level role (manage_api_gateway_account or an existing one)."
+  type        = bool
+  default     = true
+}
