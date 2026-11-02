@@ -4,7 +4,7 @@
 # WebSocket (and REST) stages can only write access logs when API Gateway's account
 # settings point at an IAM role it may assume to push logs to CloudWatch; without it
 # CreateStage fails with "CloudWatch Logs role ARN must be set in account settings to
-# enable logging". HTTP APIs (modules/apigateway) do not need it.
+# enable logging".
 #
 # Because the setting is account-wide, it is managed here at the root, not inside the
 # module. If another stack already manages it in this account, set

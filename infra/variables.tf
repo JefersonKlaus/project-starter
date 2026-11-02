@@ -25,7 +25,7 @@ variable "groq_api_key" {
 }
 
 variable "cors_origins" {
-  description = "Browser origins allowed to call the Lambda"
+  description = "Browser origins lambda_create echoes in Access-Control-Allow-Origin (Function URL calls)"
   type        = list(string)
   default     = []
 }
