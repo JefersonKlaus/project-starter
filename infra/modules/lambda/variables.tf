@@ -19,6 +19,7 @@ variable "excludes" {
     "tests", "pytest.ini", ".env", "*/.env", ".venv",
     "__pycache__", "*/__pycache__", "*/*/__pycache__",
     "requirements.txt", "requirements-dev.txt",
+    "run_local.py", # local runner, not part of the function
   ]
 }
 
@@ -47,4 +48,21 @@ variable "policy_json" {
   description = "IAM policy document (JSON) with the function's extra permissions (optional)"
   type        = string
   default     = null
+}
+
+variable "create_function_url" {
+  description = "Create a public Function URL (authorization NONE). Disable for functions that must only be reached through API Gateway or by other functions."
+  type        = bool
+  default     = true
+}
+
+variable "maximum_retry_attempts" {
+  description = "Retries Lambda performs when an asynchronous (Event) invocation fails: 0, 1 or 2. null keeps the AWS default (2) and creates no event invoke config."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.maximum_retry_attempts == null || try(contains([0, 1, 2], var.maximum_retry_attempts), false)
+    error_message = "maximum_retry_attempts must be null, 0, 1 or 2."
+  }
 }

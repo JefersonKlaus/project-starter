@@ -30,3 +30,25 @@ output "api_healthcheck_url" {
   description = "GET /healthcheck - health check (lambda_status)"
   value       = module.api_gateway.route_urls["GET /healthcheck"]
 }
+
+output "lambda_ws_connect_function_name" {
+  value = module.lambda_ws_connect.function_name
+}
+
+output "lambda_ws_prompt_function_name" {
+  value = module.lambda_ws_prompt.function_name
+}
+
+output "lambda_ws_worker_function_name" {
+  value = module.lambda_ws_worker.function_name
+}
+
+output "ws_api_url" {
+  description = "WebSocket endpoint (wss://) - routes $connect and prompt"
+  value       = module.api_gateway_websocket.websocket_url
+}
+
+output "ws_connections_url" {
+  description = "HTTPS endpoint of the @connections management API used by lambda_ws_worker"
+  value       = module.api_gateway_websocket.connections_url
+}

@@ -12,5 +12,6 @@ output "invoke_arn" {
 }
 
 output "function_url" {
-  value = aws_lambda_function_url.this.function_url
+  description = "Public HTTPS endpoint, or null when create_function_url = false"
+  value       = one(aws_lambda_function_url.this[*].function_url)
 }
