@@ -1,9 +1,3 @@
-"""Environment configuration, read once at import time.
-
-`.env` is only relevant for local runs; in AWS the variables come from the
-Lambda function configuration.
-"""
-
 import os
 from pathlib import Path
 

@@ -1,5 +1,8 @@
 -r lambda_create/requirements.txt
 -r lambda_status/requirements.txt
+-r lambda_ws_connect/requirements.txt
+-r lambda_ws_prompt/requirements.txt
+-r lambda_ws_worker/requirements.txt
 
 boto3==1.43.118
 requests==2.34.2

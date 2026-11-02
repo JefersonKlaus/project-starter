@@ -1,12 +1,16 @@
 # AWS Lambdas (`backend-ia/api`)
 
-Two Lambda functions, exposed by API Gateway (see `infra/`) as an open API: no
-authentication is required.
+Five Lambda functions, exposed by API Gateway (see `infra/`) as open APIs: no
+authentication is required. Two sit behind an HTTP API, three behind a
+WebSocket API (see "WebSocket API").
 
-| Lambda           | Route              | Purpose                                                             |
-| ---------------- | ------------------ | ------------------------------------------------------------------- |
-| `lambda_create/` | `POST /prompt`     | Generates an AWS serverless architecture from a product description |
-| `lambda_status/` | `GET /healthcheck` | Health check: verifies the dependencies `lambda_create` needs       |
+| Lambda               | API / route              | Purpose                                                                  |
+| -------------------- | ------------------------ | ------------------------------------------------------------------------ |
+| `lambda_create/`     | HTTP `POST /prompt`      | Generates an AWS serverless architecture from a product description      |
+| `lambda_status/`     | HTTP `GET /healthcheck`  | Health check: verifies the dependencies `lambda_create` needs            |
+| `lambda_ws_connect/` | WebSocket `$connect`     | Validates the connection token (accepts everything for now)              |
+| `lambda_ws_prompt/`  | WebSocket `prompt`       | Validates the message and starts the generation asynchronously           |
+| `lambda_ws_worker/`  | (invoked by `ws_prompt`) | Runs the generation (`lambda_create`) and pushes the result to the client |
 
 Each folder is deployed as a plain **zip package** with a dependencies layer:
 no container image, no embeddings model inside the Lambda. The zip is flat
@@ -96,6 +100,152 @@ tens of seconds (the Terraform timeout is 300 s); the generation rules the model
 must follow (one Lambda per action, least-privilege IAM, proxy responses, ...)
 live in `SYSTEM_RULES` in `ai/machine.py`. See "Request and response" for the
 request body, the `curl` example and the error codes.
+
+## WebSocket API
+
+The HTTP `POST /prompt` keeps the connection open for the whole generation
+(tens of seconds). The WebSocket API does the same job asynchronously: the
+client connects, sends the prompt, gets an immediate acknowledgement and
+receives the result as a message when it is ready.
+
+```
+client --$connect--> lambda_ws_connect  (token validation: 200 accepts, 401 rejects)
+client --prompt----> lambda_ws_prompt   (validates, invokes the worker async, answers "accepted")
+                     lambda_ws_worker   (invokes lambda_create, posts "result" to @connections)
+client <------------ {"type": "result", ...}
+```
+
+Routes are selected by the `action` field of the JSON message
+(`$request.body.action`), so the only message the client sends is:
+
+```json
+{ "action": "prompt", "prompt": "Generate a TO DO list application", "request_id": "optional" }
+```
+
+`request_id` (up to 64 characters) is echoed in every answer so the client can
+correlate them; one is generated when absent. Messages the client receives,
+all JSON objects with a `type`:
+
+| `type`         | Sent by            | Content                                                                                                         |
+| -------------- | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `accepted`     | `lambda_ws_prompt` | `request_id`: the job was started                                                                               |
+| `error`        | both               | `detail` (+ `request_id` when known): invalid JSON (400) / schema (422) / could not start (500) / generation failed |
+| `result`       | `lambda_ws_worker` | `request_id`, `result`: the same body `POST /prompt` returns (`AWSArchitecture` + `rag_references`)             |
+| `result_chunk` | `lambda_ws_worker` | `request_id`, `index`, `total`, `data`: one piece of the result (see below)                                     |
+
+API Gateway caps WebSocket messages at 128 KB and a full architecture can be
+bigger, so when the `result` message does not fit in `WS_MAX_MESSAGE_BYTES`
+(default 120 KB) the worker sends the JSON text of the result as
+`result_chunk` messages: concatenate `data` in `index` order (`0..total-1`) and
+parse it. Try it with [`wscat`](https://github.com/websockets/wscat):
+
+```bash
+wscat -c "$(terraform -chdir=infra output -raw ws_api_url)"
+> {"action": "prompt", "prompt": "Generate a TO DO list application without Cognito authentication"}
+< {"type": "accepted", "request_id": "0b1f..."}
+< {"type": "result", "request_id": "0b1f...", "result": {"analysis_date": "...", ...}}
+```
+
+### `lambda_ws_connect` (`$connect`)
+
+Decides whether the handshake is accepted. API Gateway only looks at the
+status code (2xx accepts, anything else rejects; the body never reaches the
+client). The token comes from `Authorization: Bearer <token>` or, since
+browsers cannot set headers on a WebSocket handshake, from `?token=<token>` in
+the connection URL. **For now no authentication is required**: `WS_AUTH_MODE`
+is `none` and every connection is accepted. The validation is a strategy
+(`token_validator.TokenValidator`), so enabling it later is configuration plus,
+if needed, one new class:
+
+| `WS_AUTH_MODE`  | Behaviour                                                       |
+| --------------- | --------------------------------------------------------------- |
+| `none`          | Accept every connection (default, current phase)                |
+| `shared_secret` | Accept only when the token equals `WS_AUTH_TOKEN` (fails closed) |
+
+```
+main.py -> orchestrator.py -> request_parser.py (input: models.ConnectionRequest)
+                           -> service_auth.py -> token_validator.py (AllowAllValidator | SharedSecretValidator)
+                           -> response.py (output: 200 accept / 401 reject / 500 misconfigured)
+```
+
+| Module               | Responsibility                                                              |
+| -------------------- | --------------------------------------------------------------------------- |
+| `main.py`            | Lambda handler; delegates to the orchestrator                               |
+| `orchestrator.py`    | Runs parse -> authenticate -> response and maps failures to statuses        |
+| `request_parser.py`  | Serializer: `$connect` event -> `models.ConnectionRequest` (token, id, IP) |
+| `models.py`          | `ConnectionRequest` (input) and `AuthDecision` (allow / deny + reason)      |
+| `token_validator.py` | `TokenValidator` protocol and its implementations                           |
+| `service_auth.py`    | Registry `VALIDATORS` wired to `config`; applies the configured validator  |
+| `response.py`        | Output: proxy response (only the status code matters to API Gateway)        |
+| `config.py`          | `WS_AUTH_MODE`, `WS_AUTH_TOKEN`                                             |
+
+### `lambda_ws_prompt` (`prompt`)
+
+Validates the message and hands the job to the worker with an asynchronous
+(`Event`) Lambda invocation, so it answers in milliseconds. The route has a
+`$default` route response, which is what delivers its response body
+(`accepted` / `error`) to the client. The job sent to the worker is
+`{"connection_id", "callback_url", "request_id", "prompt"}`, where
+`callback_url` is `https://<domainName>/<stage>` of the API (the `@connections`
+endpoint), taken from the event's `requestContext`.
+
+```
+main.py -> orchestrator.py -> request_parser.py (input: models.ConnectionContext + models.PromptRequest)
+                           -> models.WorkerJob -> service_dispatch.py (LambdaJobDispatcher: invoke Event)
+                           -> response.py (output: accepted / error)
+```
+
+| Module                | Responsibility                                                                 |
+| --------------------- | ------------------------------------------------------------------------------ |
+| `main.py`             | Lambda handler; delegates to the orchestrator                                  |
+| `orchestrator.py`     | Runs parse -> dispatch -> response and maps failures to statuses (400/422/500) |
+| `request_parser.py`   | Serializer: event -> `ConnectionContext` (requestContext) and `PromptRequest` (body) |
+| `models.py`           | `ConnectionContext`, `PromptRequest` (input) and `WorkerJob` (contract with the worker) |
+| `service_dispatch.py` | `LambdaJobDispatcher`: asynchronous invocation of `WORKER_FUNCTION_NAME`       |
+| `response.py`         | Output: proxy response with the `accepted` / `error` message                   |
+| `config.py`           | `WORKER_FUNCTION_NAME`                                                         |
+
+### `lambda_ws_worker`
+
+Invoked asynchronously with the job. It runs `lambda_create` with a synchronous
+invocation (so the generation logic lives in exactly one place), unwraps its
+proxy response and pushes the result to the client through the API Gateway
+management API (`post_to_connection`). Failures are reported to the client as
+an `error` message instead of raising, and Terraform sets the function's
+asynchronous retries to 0, so a failed generation is never silently re-run. A
+client that already disconnected (`GoneException`) is logged and ignored. The
+`lambda` client waits `CREATE_TIMEOUT_SECONDS` (300 s, boto3's default of 60 s
+would abort and retry the generation) with SDK retries disabled.
+
+```
+main.py -> orchestrator.py -> request_parser.py (input: models.Job)
+                           -> service_generation.py (LambdaCreateGenerator: invoke lambda_create)
+                           -> messages.py (result | result_chunk | error) -> service_publisher.py (ConnectionPublisher)
+                           -> response.py (summary: completed / failed / rejected)
+```
+
+| Module                  | Responsibility                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `main.py`               | Lambda handler; delegates to the orchestrator                                    |
+| `orchestrator.py`       | Runs parse -> generate -> publish; reports generation failures to the client    |
+| `request_parser.py`     | Serializer: invocation event -> `models.Job`                                     |
+| `models.py`             | `Job` (the payload `lambda_ws_prompt` sends)                                     |
+| `service_generation.py` | `LambdaCreateGenerator`: synchronous invocation of `CREATE_FUNCTION_NAME`        |
+| `messages.py`           | Message formats and the splitting of large results into `result_chunk` messages |
+| `service_publisher.py`  | `ConnectionPublisher`: `post_to_connection`, one client per callback URL         |
+| `response.py`           | Summary returned by the handler (nobody waits for it; used by tests and logs)    |
+| `config.py`             | `CREATE_FUNCTION_NAME`, `CREATE_TIMEOUT_SECONDS`, `WS_MAX_MESSAGE_BYTES`         |
+
+Environment variables of the WebSocket Lambdas (set by Terraform in AWS):
+
+| Variable                 | Lambda       | Required | Description                                                              |
+| ------------------------ | ------------ | -------- | ------------------------------------------------------------------------ |
+| `WS_AUTH_MODE`           | `ws_connect` | no       | `none` (default) or `shared_secret`                                      |
+| `WS_AUTH_TOKEN`          | `ws_connect` | no*      | Secret clients must present (*required when `WS_AUTH_MODE=shared_secret`) |
+| `WORKER_FUNCTION_NAME`   | `ws_prompt`  | yes      | Name of `lambda_ws_worker`                                               |
+| `CREATE_FUNCTION_NAME`   | `ws_worker`  | yes      | Name of `lambda_create`                                                  |
+| `CREATE_TIMEOUT_SECONDS` | `ws_worker`  | no       | How long to wait for `lambda_create` (default 300)                       |
+| `WS_MAX_MESSAGE_BYTES`   | `ws_worker`  | no       | Largest message pushed to a client (default 122880, API limit is 128 KB) |
 
 ## Prerequisites
 
@@ -223,9 +373,18 @@ driven by variables at the top instead of command-line options:
 4. **Invoke** (edit the variables first if needed):
 
    ```bash
-   python lambda_status/run_local.py   # GET /healthcheck: are .env and AWS credentials good?
-   python lambda_create/run_local.py   # POST /prompt: generates an architecture
+   python lambda_status/run_local.py       # GET /healthcheck: are .env and AWS credentials good?
+   python lambda_create/run_local.py       # POST /prompt: generates an architecture
+   python lambda_ws_connect/run_local.py   # $connect: is the handshake accepted? (no AWS needed)
+   python lambda_ws_prompt/run_local.py    # prompt: invokes the deployed worker (WORKER_FUNCTION_NAME)
+   python lambda_ws_worker/run_local.py    # worker: runs the deployed lambda_create (CREATE_FUNCTION_NAME)
    ```
+
+   The WebSocket scripts talk to deployed functions, so they need AWS
+   credentials and the function names in `.env` (see `.env-example`);
+   `ws_prompt`/`ws_worker` push the answer to `CONNECTION_ID`, so either paste
+   the id of a client connected right now (it appears in the API's access logs)
+   or expect a "connection is gone" warning.
 
    The exit code is `0` on HTTP 200 and `1` otherwise (including the `503` of an
    unhealthy check), so they can be used in scripts. To simulate a request
@@ -246,15 +405,27 @@ python -m pytest                       # everything
 python -m pytest tests/lambda_status   # one Lambda only
 ```
 
-The tests never call Groq or S3 (everything external is mocked) and run in CI on
-every pull request. There is one folder per Lambda, each with its own
-`conftest.py` (fixtures and `sys.path` setup for that Lambda's flat modules):
+The tests never call Groq, S3, Lambda or API Gateway (everything external is
+mocked) and run in CI on every pull request. There is one folder per Lambda,
+each with its own `conftest.py` (fixtures and `sys.path` setup for that
+Lambda's flat modules):
 
 ```
 tests/
-  lambda_create/   test_main.py, test_orchestrator.py, test_machine.py, ...
-  lambda_status/   test_main.py (handler), test_checks.py (each health check)
+  lambda_modules.py    isolated_lambda(): loads one Lambda's flat modules without clashing with the others'
+  lambda_create/       test_main.py, test_orchestrator.py, test_machine.py, ...
+  lambda_status/       test_main.py (handler), test_checks.py (each health check)
+  lambda_ws_connect/   test_token_validator.py, test_service_auth.py, test_orchestrator.py, ...
+  lambda_ws_prompt/    test_service_dispatch.py, test_request_parser.py, test_orchestrator.py, ...
+  lambda_ws_worker/    test_messages.py (chunking), test_service_generation.py, test_service_publisher.py, ...
 ```
+
+Because every zip is flat, all Lambdas have modules with the same names
+(`main`, `orchestrator`, `config`, ...). `tests/lambda_modules.py` imports one
+Lambda's modules with its folder first on `sys.path` and swaps them into
+`sys.modules` only for the duration of each test; the `conftest.py` of each
+WebSocket folder exposes them as a fixture (`ws_connect`, `ws_prompt`,
+`ws_worker`), e.g. `ws_worker.orchestrator.handle(event)`.
 
 ## Health check (`lambda_status`)
 
@@ -317,9 +488,31 @@ so adding a dependency means one new module in `checks/` and one entry in
 Deployment is done by Terraform (`infra/`) through the **Deploy Lambdas** GitHub
 workflow (`.github/workflows/deploy.yml`): it runs the tests, zips each Lambda
 folder (flat, `main.py` at the root), builds one dependencies layer per folder
-from its `requirements.txt`, wires both behind API Gateway (`POST /prompt`,
-`GET /healthcheck`) and applies to the environment's AWS account. It runs
-automatically on pushes to `main` (development) and manually for stage/prod.
+from its `requirements.txt`, wires them behind API Gateway (HTTP API:
+`POST /prompt`, `GET /healthcheck`; WebSocket API: `$connect`, `prompt`) and
+applies to the environment's AWS account. It runs automatically on pushes to
+`main` (development) and manually for stage/prod.
+
+The WebSocket API is `infra/modules/apigateway_websocket` (a sibling of the
+HTTP module `infra/modules/apigateway`, since protocol, deployment model and
+permissions differ): one Lambda proxy integration per route, a `$default`
+route response for the routes that answer the client, an explicit deployment
+(WebSocket stages have no auto-deploy) and a named stage (`var.environment`),
+so the URL is `wss://<id>.execute-api.<region>.amazonaws.com/<env>`
+(`terraform output ws_api_url`). The three WebSocket Lambdas have no public
+Function URL; `lambda_ws_prompt` may only invoke the worker and
+`lambda_ws_worker` may only invoke `lambda_create` and call
+`execute-api:ManageConnections` on this API.
+
+Unlike HTTP APIs, a WebSocket stage can only write access logs when API
+Gateway's **account-level** "CloudWatch Logs role ARN" is set (otherwise
+`CreateStage` fails with `CloudWatch Logs role ARN must be set in account
+settings to enable logging`). `infra/apigateway_account.tf` creates that role
+(`AmazonAPIGatewayPushToCloudWatchLogs`) and sets it with
+`aws_api_gateway_account`; the WebSocket module waits for it. It is one setting
+per AWS account and region, so if another stack already owns it use
+`-var manage_api_gateway_account=false`, and to deploy without access logs at
+all use `-var ws_access_logs=false`.
 
 Terraform does **not** create the RAG bucket nor upload the index: do that once
 per environment (see "How the RAG works").
@@ -332,7 +525,16 @@ Adding API Gateway (`infra/modules/apigateway`) requires the extra permissions i
 [`infra/policies/github-deploy-api-gateway.json`](../../infra/policies/github-deploy-api-gateway.json):
 API Gateway v2 APIs **and their tags** (the provider's `default_tags` make
 `CreateApi` call the `/tags` endpoint), `lambda:AddPermission` for the routes,
-and the `/aws/apigateway/*` access log group. Attach it once per AWS account:
+and the `/aws/apigateway/*` access log group. The WebSocket API uses the same
+API Gateway v2 permissions; the worker additionally needs the deploy user to
+manage its asynchronous-invocation config
+(`lambda:PutFunctionEventInvokeConfig`, `lambda:GetFunctionEventInvokeConfig`,
+`lambda:UpdateFunctionEventInvokeConfig`, `lambda:DeleteFunctionEventInvokeConfig`)
+and the account-level logging role: `apigateway:GET`/`apigateway:PATCH` on
+`arn:aws:apigateway:<region>::/account` plus `iam:PassRole` on
+`<env>-backend-ia-apigateway-logs-role` (role creation itself is already
+covered by the permissions the Lambda execution roles need).
+Attach it once per AWS account:
 
 ```bash
 aws iam put-user-policy \

@@ -71,4 +71,5 @@ crash.log
 
 
 backend-ia/.gitignore
+backend-ia/.env
 *gz
