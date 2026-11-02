@@ -64,7 +64,7 @@ main.py -> orchestrator.py -> request_parser.py (input: models.RequestPayload)
 | `ai/machine.py`           | Prompt and Groq model invocation                                       |
 | `ai/models.py`            | Output schema (`AWSArchitecture`) validated with Pydantic              |
 | `run_local.py`            | Local tool: invokes the handler on your machine (see "Run locally")    |
-| `../../rag/ingest.py`     | Local tool: builds `rag_index.json` from the reference Python files    |
+| `../../rag/ingest.py`     | Local tool: builds `rag_index.json` from the reference projects        |
 
 On success (`200`) the body is the `AWSArchitecture` schema plus `rag_references`:
 
@@ -308,6 +308,20 @@ wscat -c "$(terraform -chdir=infra output -raw ws_api_url)" -H "Authorization: B
 < {"type": "result", "request_id": "demo", "result": {"analysis_date": "2026-10-26", ...}}
 ```
 
+`backend-ia/scripts/call_api.py` does the whole sequence from Python (Cognito
+login with `USER_PASSWORD_AUTH` in `us-east-2`, connect, prompt, chunk
+reassembly, save to `resultado_arquitetura.json`):
+
+```bash
+pip install boto3 websockets
+python backend-ia/scripts/call_api.py <user> <pass> <cognito_client_id> <ws_api> [--stage dev]
+# e.g. python backend-ia/scripts/call_api.py alice@example.com 'Str0ng!Passw0rd' 1h57kf5cpq17m0eml12EXAMPLE abc123
+```
+
+`<cognito_client_id>` is the `cognito_app_client_id` output; `<ws_api>` is the
+API id (`abc123`, combined with `--stage`, default `dev`) or the full
+`ws_api_url` output.
+
 The same session from a browser, handling every message type including chunk
 reassembly:
 
@@ -476,18 +490,25 @@ overriding variables already present in the shell. Start from
 
 ## How the RAG works
 
-The index is generated locally by `backend-ia/rag/ingest.py`: it reads the
-reference Python files, splits them into chunks (1000 characters, 200 of
-overlap, Python-aware splitter) and writes them to `rag_index.json`. No
-embeddings are generated: the Lambda searches the chunks with BM25 (keyword
-ranking, pure Python), which is what keeps the package small enough for a zip.
+The index is generated locally by `backend-ia/rag/ingest.py` from one or more
+**reference projects** (whole folders): it reads every supported file (Python,
+Terraform/HCL, Markdown, YAML, JSON, shell, ... - see `SUPPORTED_EXTENSIONS`),
+skipping generated and tooling folders (`.terraform`, `node_modules`, `build`,
+`tests`, lock files, files over 200 KB), splits them into chunks (1000
+characters, 200 of overlap; syntax-aware for Python/Markdown, top-level blocks
+for Terraform) and writes them to `rag_index.json`. Each chunk keeps
+`<project folder>/<relative path>` as its source, which is what comes back in
+`rag_references`. No embeddings are generated: the Lambda searches the chunks
+with BM25 (keyword ranking, pure Python), which is what keeps the package small
+enough for a zip.
 
-1. Build the index (always pass `--source`; without it the script indexes this
-   API's own code, which is useless as a reference):
+1. Build the index (`--source` is required and accepts several folders; the
+   script fails instead of writing an empty index when it finds nothing):
 
    ```bash
    cd backend-ia
-   python rag/ingest.py --source <folder with the reference .py files> --output rag_index.json
+   python rag/ingest.py --source ../reference-project --output rag_index.json
+   python rag/ingest.py --source ../todo-api ../blog-api    # several projects in one index
    ```
 
 2. Upload it to the bucket of the environment (dev = `sandbox-<RAG_BUCKET>`):
@@ -570,7 +591,7 @@ driven by variables at the top instead of command-line options:
 3. **Get a RAG index** (only for `lambda_create`). Either build one locally (no AWS needed):
 
    ```bash
-   python ../rag/ingest.py --source <folder with the reference .py files> --output ../rag_index.json
+   python ../rag/ingest.py --source <reference project folder> --output ../rag_index.json
    ```
 
    `lambda_create/run_local.py` uses `RAG_INDEX_PATH` from `.env` (relative to
