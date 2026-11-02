@@ -6,7 +6,7 @@ to the configuration; the validators themselves are plain functions of the token
 
 import config
 from models import AuthDecision, ConnectionRequest
-from token_validator import AllowAllValidator, SharedSecretValidator
+from token_validator import AllowAllValidator, CognitoValidator, SharedSecretValidator
 
 
 class AuthConfigurationError(RuntimeError):
@@ -18,11 +18,20 @@ class AuthConfigurationError(RuntimeError):
 VALIDATORS = {
     "none": lambda: AllowAllValidator(),
     "shared_secret": lambda: SharedSecretValidator(config.WS_AUTH_TOKEN),
+    "cognito": lambda: CognitoValidator(
+        config.COGNITO_USER_POOL_ID, config.COGNITO_APP_CLIENT_ID
+    ),
 }
 
 
+validator_state = {}
+
+
 def get_validator(mode=None):
+    """Validator for the mode, built once per mode: CognitoValidator caches the pool's JWKS."""
     mode = mode or config.WS_AUTH_MODE
+    if mode in validator_state:
+        return validator_state[mode]
     try:
         factory = VALIDATORS[mode]
     except KeyError:
@@ -30,9 +39,10 @@ def get_validator(mode=None):
             f"Unknown WS_AUTH_MODE {mode!r}; expected one of {sorted(VALIDATORS)}"
         ) from None
     try:
-        return factory()
+        validator_state[mode] = factory()
     except ValueError as e:
         raise AuthConfigurationError(f"WS_AUTH_MODE={mode}: {e}") from e
+    return validator_state[mode]
 
 
 def authenticate(request: ConnectionRequest, validator=None) -> AuthDecision:

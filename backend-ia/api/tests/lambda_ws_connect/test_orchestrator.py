@@ -1,6 +1,8 @@
 import json
 from unittest.mock import Mock
 
+from tests.lambda_ws_connect.conftest import APP_CLIENT_ID, USER_POOL_ID
+
 
 def _body(response):
     return json.loads(response["body"])
@@ -92,3 +94,26 @@ def test_handle_end_to_end_with_shared_secret(ws_connect, make_event, monkeypatc
     )
     assert ws_connect.orchestrator.handle(make_event(token="nope"))["statusCode"] == 401
     assert ws_connect.orchestrator.handle(make_event())["statusCode"] == 401
+
+
+def test_handle_end_to_end_with_cognito(
+    ws_connect, make_event, cognito, cognito_validator, monkeypatch
+):
+    monkeypatch.setattr(ws_connect.config, "WS_AUTH_MODE", "cognito")
+    monkeypatch.setattr(ws_connect.config, "COGNITO_USER_POOL_ID", USER_POOL_ID)
+    monkeypatch.setattr(ws_connect.config, "COGNITO_APP_CLIENT_ID", APP_CLIENT_ID)
+    # the JWKS is served by the stub instead of Cognito
+    monkeypatch.setitem(
+        ws_connect.service_auth.validator_state, "cognito", cognito_validator
+    )
+    handle = ws_connect.orchestrator.handle
+
+    # token in the query string (browser) and in the Authorization header (CLI)
+    assert handle(make_event(token=cognito.token("access")))["statusCode"] == 200
+    header = {"Authorization": f"Bearer {cognito.token('id')}"}
+    assert handle(make_event(headers=header))["statusCode"] == 200
+
+    rejected = handle(make_event(token=cognito.token("access", client_id="other")))
+    assert rejected["statusCode"] == 401
+    assert _body(rejected) == {"detail": "invalid token: issued for another app client"}
+    assert handle(make_event())["statusCode"] == 401  # no token at all

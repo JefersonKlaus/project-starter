@@ -35,6 +35,23 @@ variable "rag_bucket_name" {
   type        = string
 }
 
+variable "ws_auth_mode" {
+  description = "How lambda_ws_connect validates connections: cognito (tokens of the Cognito user pool) or none (open API)"
+  type        = string
+  default     = "cognito"
+
+  validation {
+    condition     = contains(["cognito", "none"], var.ws_auth_mode)
+    error_message = "ws_auth_mode must be cognito or none."
+  }
+}
+
+variable "cognito_allow_self_signup" {
+  description = "Let anyone sign up to the WebSocket user pool. Default: only an administrator creates users."
+  type        = bool
+  default     = false
+}
+
 variable "manage_api_gateway_account" {
   description = "Manage the account-level CloudWatch Logs role of API Gateway here (required by WebSocket access logs; one per account and region). Set to false if another stack owns it."
   type        = bool

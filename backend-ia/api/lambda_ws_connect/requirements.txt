@@ -1,2 +1,5 @@
 pydantic==2.14.1
 python-dotenv==1.2.4
+
+# Cognito tokens: JWT verification (cryptography for RS256)
+PyJWT[crypto]==2.10.1
