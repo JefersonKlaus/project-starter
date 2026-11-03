@@ -1,0 +1,48 @@
+{
+  "analysis_date": "2023-10-01",
+  "mermaid_diagram": "graph TD\n    A[API Gateway] --> B[Create Item Lambda]\n    A --> C[Get Item Lambda]\n    A --> D[Update Item Lambda]\n    A --> E[Delete Item Lambda]\n    B --> F[DynamoDB Repository]\n    C --> F\n    D --> F\n    E --> F",
+  "aws_services": [
+    {
+      "service": "AWS Lambda",
+      "resource_name": "Create Item Lambda"
+    },
+    {
+      "service": "AWS Lambda",
+      "resource_name": "Get Item Lambda"
+    },
+    {
+      "service": "AWS Lambda",
+      "resource_name": "Update Item Lambda"
+    },
+    {
+      "service": "AWS Lambda",
+      "resource_name": "Delete Item Lambda"
+    },
+    {
+      "service": "Amazon API Gateway",
+      "resource_name": "API Gateway"
+    },
+    {
+      "service": "Amazon DynamoDB",
+      "resource_name": "DynamoDB Table"
+    }
+  ],
+  "generated_code": {
+    "terraform": {
+      "main.tf": "provider \"aws\" {}\n\nresource \"aws_lambda_function\" \"create_item\" {\n  filename         = \"create_item.zip\"\n  function_name    = \"create_item\"\n  role             = aws_iam_role.lambda_role.arn\n  handler          = \"create_item.handler\"\n  runtime          = \"python3.8\"\n  source_code_hash = filebase64sha256(\"create_item.zip\")\n}\n\nresource \"aws_iam_role\" \"lambda_role\" {\n  name = \"lambda_role\"\n\n  assume_role_policy = jsonencode({\n    Version = \"2012-10-17\"\n    Statement = [\n      {\n        Action = \"sts:AssumeRole\"\n        Effect = \"Allow\"\n        Principal = {\n          Service = \"lambda.amazonaws.com\"\n        }\n      }\n    ]\n  })\n}\n\nresource \"aws_lambda_permission\" \"allow_api_gateway\" {\n  statement_id  = \"AllowExecutionFromAPIGateway\"\n  action        = \"lambda:InvokeFunction\"\n  function_name = aws_lambda_function.create_item.function_name\n  principal     = \"apigateway.amazonaws.com\"\n  source_arn    = \"*\"\n}",
+      "variables.tf": "variable \"region\" {\n  description = \"The AWS region where the resources will be created\"\n  type        = string\n}\n\nvariable \"table_name\" {\n  description = \"The name of the DynamoDB table\"\n  type        = string\n}"
+    },
+    "python": {
+      "create_item.py": "import json\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=event['region'])\n    table = dynamodb.Table(event['table_name'])\n\n    try:\n        response = table.put_item(\n            Item=event['item']\n        )\n        return json.dumps({'statusCode': 200, 'body': json.dumps(response)})\n    except ClientError as e:\n        return json.dumps({'statusCode': 500, 'body': json.dumps(e.response)})",
+      "get_item.py": "import json\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=event['region'])\n    table = dynamodb.Table(event['table_name'])\n\n    try:\n        response = table.get_item(\n            Key=event['key']\n        )\n        return json.dumps({'statusCode': 200, 'body': json.dumps(response['Item'])})\n    except ClientError as e:\n        return json.dumps({'statusCode': 500, 'body': json.dumps(e.response)})",
+      "update_item.py": "import json\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=event['region'])\n    table = dynamodb.Table(event['table_name'])\n\n    try:\n        response = table.update_item(\n            Key=event['key'],\n            UpdateExpression='SET #attr1 = :val1, #attr2 = :val2'\n            ExpressionAttributeNames={'#attr1': 'attr1', '#attr2': 'attr2'}\n            ExpressionAttributeValues={':val1': event['value1'], ':val2': event['value2']}\n        )\n        return json.dumps({'statusCode': 200, 'body': json.dumps(response)})\n    except ClientError as e:\n        return json.dumps({'statusCode': 500, 'body': json.dumps(e.response)})",
+      "delete_item.py": "import json\nimport boto3\nfrom botocore.exceptions import ClientError\n\ndef handler(event, context):\n    dynamodb = boto3.resource('dynamodb', region_name=event['region'])\n    table = dynamodb.Table(event['table_name'])\n\n    try:\n        response = table.delete_item(\n            Key=event['key']\n        )\n        return json.dumps({'statusCode': 200, 'body': json.dumps(response)})\n    except ClientError as e:\n        return json.dumps({'statusCode': 500, 'body': json.dumps(e.response)})",
+      "requirements.txt": "boto3"
+    }
+  },
+  "rag_references": [
+    "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/report_adapter/dynamodb_repository.py",
+    "/mnt/d/codigo/auto-arch-analyzer/backend/src/test/test_pdf_mail_consumer.py",
+    "/mnt/d/codigo/auto-arch-analyzer/backend/src/lambdas/ia_consumer/handler.py"
+  ]
+}
