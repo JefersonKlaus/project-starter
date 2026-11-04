@@ -18,8 +18,10 @@ export default defineConfig({
     unstubGlobals: true,
     coverage: {
       provider: "v8",
-      include: ["src/lib/**", "src/routes/**"],
-      exclude: ["src/routeTree.gen.ts", "src/lib/*.mock.json"],
+      // Only source files: a bare "src/routes/**" would also match README.md and
+      // the provider would try (and fail) to parse it as JavaScript.
+      include: ["src/{lib,routes,features,hooks}/**/*.{ts,tsx}"],
+      exclude: ["src/routeTree.gen.ts", "src/**/*.test.{ts,tsx}"],
     },
   },
 });

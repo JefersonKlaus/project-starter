@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 
 import {
-  AppHeader,
   CorporateRulesCard,
   GenerationResultCard,
   PromptForm,
@@ -12,6 +11,7 @@ import {
 import { useArchitectSocket } from "@/lib/architect-socket-context";
 
 export const Route = createFileRoute("/_authenticated/")({
+  staticData: { title: "Novo Projeto" },
   head: () => ({
     meta: [
       { title: "Arquiteto de Infraestrutura IA" },
@@ -35,7 +35,6 @@ export const Route = createFileRoute("/_authenticated/")({
 
 /** Home page: prompt on the left, generation result on the right. */
 function ArchitectPage() {
-  const { session } = Route.useRouteContext();
   const socket = useArchitectSocket();
   const [prompt, setPrompt] = useState("");
   const resultRef = useRef<HTMLElement>(null);
@@ -46,29 +45,21 @@ function ArchitectPage() {
   });
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader
-        email={session.email}
-        connectionStatus={socket.status}
-        onReconnect={socket.reconnect}
-      />
+    <div className="mx-auto grid w-full max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1fr_1.2fr]">
+      <section className="space-y-6">
+        <PromptForm
+          value={prompt}
+          onChange={setPrompt}
+          onSubmit={() => void generation.generate(prompt)}
+          onCancel={generation.cancel}
+          isGenerating={generation.isGenerating}
+          error={generation.error}
+          configError={socket.configError}
+        />
+        <CorporateRulesCard rules={rules} loading={loadingRules} />
+      </section>
 
-      <main className="mx-auto grid max-w-7xl gap-6 px-6 py-8 lg:grid-cols-[1fr_1.2fr]">
-        <section className="space-y-6">
-          <PromptForm
-            value={prompt}
-            onChange={setPrompt}
-            onSubmit={() => void generation.generate(prompt)}
-            onCancel={generation.cancel}
-            isGenerating={generation.isGenerating}
-            error={generation.error}
-            configError={socket.configError}
-          />
-          <CorporateRulesCard rules={rules} loading={loadingRules} />
-        </section>
-
-        <GenerationResultCard ref={resultRef} result={generation.result} phase={generation.phase} />
-      </main>
+      <GenerationResultCard ref={resultRef} result={generation.result} phase={generation.phase} />
     </div>
   );
 }

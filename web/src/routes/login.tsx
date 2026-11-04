@@ -1,16 +1,8 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useState, type ComponentProps, type FormEvent } from "react";
-import {
-  AlertCircle,
-  ArrowLeft,
-  CloudCog,
-  Eye,
-  EyeOff,
-  KeyRound,
-  Loader2,
-  LogIn,
-} from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { AlertCircle, ArrowLeft, CloudCog, KeyRound, Loader2, LogIn } from "lucide-react";
 
+import { PasswordInput } from "@/components/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -340,23 +332,5 @@ function ErrorAlert({ message }: { message: string }) {
       <AlertCircle className="h-4 w-4" />
       <AlertDescription>{message}</AlertDescription>
     </Alert>
-  );
-}
-
-function PasswordInput(props: Omit<ComponentProps<typeof Input>, "type">) {
-  const [visible, setVisible] = useState(false);
-  return (
-    <div className="relative">
-      <Input {...props} type={visible ? "text" : "password"} className="pr-10" />
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-        tabIndex={-1}
-        aria-label={visible ? "Ocultar senha" : "Mostrar senha"}
-        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
-      >
-        {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-      </button>
-    </div>
   );
 }

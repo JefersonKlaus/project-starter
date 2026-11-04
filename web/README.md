@@ -12,7 +12,7 @@ Prefer working locally? You need Node.js and npm — [install with nvm](https://
 git clone <this-repository-url>
 cd <repository-name>
 npm i
-cp .env.example .env.local   # fill in your Cognito settings
+# fill in the variables in .env (Cognito, WebSocket API, backend API)
 npm run dev
 ```
 
@@ -22,12 +22,15 @@ npm run dev
 src/
 ├── routes/                 # TanStack file-based routes — thin: route config + page composition
 │   ├── login.tsx
-│   ├── _authenticated.tsx  # auth guard + WebSocket provider
-│   └── _authenticated/index.tsx
+│   ├── _authenticated.tsx  # auth guard + WebSocket provider + app shell (sidebar/header)
+│   └── _authenticated/     # index (generation), projects, repositories, settings/{git-provider,password}
 ├── features/               # one folder per business feature (feature-sliced)
+│   ├── shell/              # chrome shared by authenticated pages: app-shell, app-sidebar, app-header, content-page
+│   ├── settings/           # Git provider connection (GitHub/GitLab) and password change forms
+│   ├── projects/           # projects list (status, repository, Git sync, provider)
 │   └── architect/
 │       ├── hooks/          # behaviour: use-generation, use-corporate-rules, use-generated-files, use-project-download
-│       ├── components/     # presentation: prompt-form, generation-result-card, app-header, ...
+│       ├── components/     # presentation: prompt-form, generation-result-card, connection-status, ...
 │       ├── constants.ts
 │       └── index.ts        # public surface of the feature
 ├── lib/                    # framework-agnostic infrastructure: auth/, architect-socket, schemas, infra-api
@@ -39,6 +42,11 @@ src/
 Rules of thumb: `routes/` only wires things together; `features/*/hooks` hold
 state and side effects; `features/*/components` are presentational (props in,
 events out); `lib/` has no React and is unit-tested in isolation.
+
+Pages under `_authenticated/` render inside the shared shell: a collapsible
+sidebar (navigation, settings and sign-out) and a header with the page title,
+the connection status and the signed-in e-mail. A page sets the title shown in
+the header through the route's `staticData: { title }`.
 
 ## Tests
 
@@ -53,12 +61,12 @@ npm run test:watch     # watch mode
 npm run test:coverage  # with V8 coverage report (coverage/)
 ```
 
-| Location                               | Covers                                                                               |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| `src/lib/auth/*.test.ts`               | Cognito client (login, `NEW_PASSWORD_REQUIRED`, refresh, errors) and session storage |
-| `src/lib/architect-socket*.test.ts(x)` | WebSocket URL/auth, reconnection, prompt → accepted → result, React provider         |
-| `src/lib/infra-api.test.ts`            | Corporate rules and the zip download                                                 |
-| `src/test/routes/*.test.tsx`           | Login screen (both steps), authenticated guard, main page                            |
+| Location                               | Covers                                                                                                                    |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/auth/*.test.ts`               | Cognito client (login, `NEW_PASSWORD_REQUIRED`, refresh, change password, errors) and session storage                     |
+| `src/lib/architect-socket*.test.ts(x)` | WebSocket URL/auth, reconnection, prompt → accepted → result, React provider                                              |
+| `src/lib/infra-api.test.ts`            | Corporate rules, projects list (mock), the zip download and the Git provider connection call                              |
+| `src/test/routes/*.test.tsx`           | Login screen (both steps), authenticated guard + shell (sidebar, header, sign-out), main page, settings, management pages |
 
 Route tests live in `src/test/routes/` on purpose: any file inside
 `src/routes/` would be treated as a route by the TanStack Router generator.
@@ -79,7 +87,7 @@ Two-step flow:
    to the new-password step (`RespondToAuthChallenge`). Required User Pool
    attributes that are still unset (e.g. `name`) are requested in the same step.
 
-Environment variables (see `.env.example`):
+Environment variables — all of them live in the single `.env` file at the project root:
 
 | Variable                    | Description                                                      |
 | --------------------------- | ---------------------------------------------------------------- |
@@ -91,6 +99,7 @@ Environment variables (see `.env.example`):
 | `VITE_WS_AUTH_TOKEN`        | `access` (default) or `id` token                                 |
 | `VITE_WS_KEEPALIVE_SECONDS` | Seconds between keepalive messages (default `240`, `0` disables) |
 | `VITE_WS_KEEPALIVE_ACTION`  | `action` of the keepalive message (default `ping`)               |
+| `VITE_API_BASE_URL`         | Base URL of the backend REST API (see "Settings" below)          |
 
 Cognito App Client requirements: **no client secret**, with the
 `ALLOW_USER_PASSWORD_AUTH` and `ALLOW_REFRESH_TOKEN_AUTH` flows enabled. Users
@@ -99,6 +108,38 @@ are identified by e-mail (use e-mail as the username or as an alias in the pool)
 Tokens are stored in `localStorage` and refreshed automatically with the refresh
 token. For authenticated backend calls use `getAuthHeaders()` from
 `src/lib/auth/session.ts` (sends `Authorization: Bearer <idToken>`).
+
+## Settings
+
+Two pages under the sidebar's _Configurações_ group (`/settings` redirects to
+the first one):
+
+- **Git provider connection (GitHub / GitLab)** — `/settings/git-provider`.
+  Provider, server URL
+  (pre-filled with github.com / gitlab.com, editable for Enterprise/self-hosted
+  instances), optional user/organization and a personal access token. The
+  portal does **not** connect to the provider: it only forwards the data to the
+  backend, which stores it and establishes the connection later. Nothing is kept
+  in the browser. Backend contract (`src/lib/infra-api.ts`, `salvarConexaoGit`):
+
+  ```
+  POST {VITE_API_BASE_URL}/integrations/git-provider
+  Authorization: Bearer <Cognito id token>
+  Content-Type: application/json
+
+  { "provider": "github" | "gitlab",
+    "server_url": "https://github.com",
+    "username": "org-or-user",          // optional
+    "token": "<personal access token>" }
+
+  2xx     -> accepted (body ignored)
+  4xx/5xx -> error; an optional JSON { "message": "..." } is shown to the user
+  ```
+
+- **Change password** — `/settings/password`. Current password + new password
+  (confirmed). Goes
+  straight to Cognito's `ChangePassword` with the user's access token
+  (refreshed first when needed); the User Pool password policy applies.
 
 ## Architecture generation (WebSocket)
 

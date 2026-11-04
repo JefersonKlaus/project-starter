@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  changePassword,
   CognitoError,
   completeNewPassword,
   decodeJwtPayload,
@@ -256,6 +257,34 @@ describe("globalSignOut", () => {
     await globalSignOut(makeSession({ accessToken: "the-access-token" }));
     expect(calls[0]?.target).toBe("AWSCognitoIdentityProviderService.GlobalSignOut");
     expect(calls[0]?.body).toEqual({ AccessToken: "the-access-token" });
+  });
+});
+
+describe("changePassword", () => {
+  it("sends the access token with the current and new passwords to ChangePassword", async () => {
+    scriptFetch({ body: {} });
+    await changePassword(makeSession({ accessToken: "the-access-token" }), "Old123!", "New456!");
+    expect(calls[0]?.target).toBe("AWSCognitoIdentityProviderService.ChangePassword");
+    expect(calls[0]?.body).toEqual({
+      AccessToken: "the-access-token",
+      PreviousPassword: "Old123!",
+      ProposedPassword: "New456!",
+    });
+  });
+
+  it("surfaces Cognito errors (wrong current password, policy violations)", async () => {
+    scriptFetch({
+      status: 400,
+      body: { __type: "NotAuthorizedException", message: "Incorrect username or password." },
+    });
+    await expect(changePassword(makeSession(), "wrong", "New456!")).rejects.toMatchObject({
+      code: "NotAuthorizedException",
+    });
+
+    scriptFetch({ status: 400, body: { __type: "InvalidPasswordException", message: "weak" } });
+    await expect(changePassword(makeSession(), "Old123!", "weak")).rejects.toMatchObject({
+      code: "InvalidPasswordException",
+    });
   });
 });
 

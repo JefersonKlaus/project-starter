@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 // Environment variables exposed to the browser by Vite (VITE_ prefix).
-// Actual values live in `.env` / `.env.local` (see `.env.example`).
+// Actual values live in the single `.env` file at the project root.
 interface ImportMetaEnv {
   /** Cognito User Pool app client ID (required). */
   readonly VITE_COGNITO_CLIENT_ID?: string;
@@ -22,6 +22,12 @@ interface ImportMetaEnv {
   readonly VITE_WS_KEEPALIVE_SECONDS?: string;
   /** `action` of the keepalive message (optional, default "ping"). */
   readonly VITE_WS_KEEPALIVE_ACTION?: string;
+  /**
+   * Base URL of the backend REST API (API Gateway HTTP/REST with Cognito authorizer),
+   * e.g. "https://abc123.execute-api.us-east-2.amazonaws.com/dev". Required by the
+   * settings screen (Git provider connection).
+   */
+  readonly VITE_API_BASE_URL?: string;
 }
 
 interface ImportMeta {

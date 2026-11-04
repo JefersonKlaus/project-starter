@@ -1,8 +1,8 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { navigateMock, pageOf, resetRouterMock, routerState } from "@/test/router-mock";
+import { pageOf, resetRouterMock, routerState } from "@/test/router-mock";
 import { makeSession, mockResultado } from "@/test/fixtures";
 import { AbortError, type PromptResponse, type SocketStatus } from "@/lib/architect-socket";
 import type { ResultadoGeracao } from "@/lib/infra-api";
@@ -22,10 +22,6 @@ vi.mock("@/lib/infra-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/infra-api")>()),
   baixarRepositorioZip: vi.fn(async () => {}),
 }));
-vi.mock("@/lib/auth/session", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/auth/session")>()),
-  signOut: vi.fn(async () => {}),
-}));
 
 const socketMock = {
   status: "open" as SocketStatus,
@@ -38,7 +34,6 @@ vi.mock("@/lib/architect-socket-context", () => ({
 }));
 
 import { baixarRepositorioZip } from "@/lib/infra-api";
-import { signOut } from "@/lib/auth/session";
 import { Route } from "@/routes/_authenticated/index";
 
 const Index = pageOf(Route);
@@ -96,28 +91,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
-});
-
-describe("header", () => {
-  it("shows the signed-in user and the connection status", () => {
-    render(<Index />);
-    expect(screen.getByText("ana@empresa.com")).toBeInTheDocument();
-    expect(screen.getByText("Conectado")).toBeInTheDocument();
-  });
-
-  it("offers to reconnect when the socket is down", async () => {
-    socketMock.status = "closed";
-    render(<Index />);
-    await userEvent.setup().click(screen.getByRole("button", { name: /Desconectado/ }));
-    expect(socketMock.reconnect).toHaveBeenCalled();
-  });
-
-  it("signs out and goes back to the login page", async () => {
-    render(<Index />);
-    await userEvent.setup().click(screen.getByRole("button", { name: "Sair" }));
-    expect(signOut).toHaveBeenCalled();
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: "/login", replace: true }));
-  });
 });
 
 describe("prompt submission over the WebSocket", () => {
@@ -223,7 +196,7 @@ describe("prompt submission over the WebSocket", () => {
   });
 
   it("disables generation and explains when the WebSocket is not configured", async () => {
-    socketMock.configError = "Configuração ausente: defina VITE_WS_API_ID (veja .env.example).";
+    socketMock.configError = "Configuração ausente: defina VITE_WS_API_ID (veja o arquivo .env).";
     render(<Index />);
     await userEvent.setup().type(textarea(), "x");
     expect(screen.getByText(/VITE_WS_API_ID/)).toBeInTheDocument();

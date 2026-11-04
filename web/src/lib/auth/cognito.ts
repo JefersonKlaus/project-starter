@@ -9,6 +9,7 @@
 //   2. completeNewPassword() -> RespondToAuthChallenge (NEW_PASSWORD_REQUIRED)
 //   3. refreshTokens()       -> InitiateAuth (REFRESH_TOKEN_AUTH)
 //   4. globalSignOut()       -> GlobalSignOut
+//   5. changePassword()      -> ChangePassword (signed-in user)
 //
 // Requirements on the User Pool App Client:
 //   - no "client secret" (browser apps cannot keep it safe);
@@ -41,7 +42,7 @@ export function getCognitoConfig(): CognitoConfig {
   if (missing.length > 0 || !clientId || !region) {
     throw new CognitoError(
       "ConfigurationError",
-      `Configuração do Cognito ausente: defina ${missing.join(" e ")} (veja .env.example).`,
+      `Configuração do Cognito ausente: defina ${missing.join(" e ")} (veja o arquivo .env).`,
     );
   }
 
@@ -318,6 +319,24 @@ export async function globalSignOut(session: AuthSession): Promise<void> {
   const config = getCognitoConfig();
   await cognitoRequest<Record<string, never>>(config, "GlobalSignOut", {
     AccessToken: session.accessToken,
+  });
+}
+
+/**
+ * Changes the password of the signed-in user. Cognito validates the current
+ * password and applies the User Pool policy to the new one; the session
+ * (access token) must still be valid.
+ */
+export async function changePassword(
+  session: AuthSession,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  const config = getCognitoConfig();
+  await cognitoRequest<Record<string, never>>(config, "ChangePassword", {
+    AccessToken: session.accessToken,
+    PreviousPassword: currentPassword,
+    ProposedPassword: newPassword,
   });
 }
 

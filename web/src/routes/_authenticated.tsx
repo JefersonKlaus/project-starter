@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 
+import { AppShell } from "@/features/shell";
 import { ArchitectSocketProvider } from "@/lib/architect-socket-context";
 import { clearSession, ensureValidSession } from "@/lib/auth/session";
 
@@ -13,6 +14,9 @@ import { clearSession, ensureValidSession } from "@/lib/auth/session";
  * It also owns the WebSocket connection to the generation backend: the
  * connection is opened as soon as the user is authenticated and closed when
  * they leave (logout).
+ *
+ * Every child page is rendered inside the shared shell (sidebar + header);
+ * pages set the header title through `staticData.title`.
  */
 export const Route = createFileRoute("/_authenticated")({
   // The session lives in localStorage, so the check must run in the browser.
@@ -32,6 +36,7 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
+  const { session } = Route.useRouteContext();
   const navigate = useNavigate();
 
   // The WebSocket could not obtain a valid Cognito token (refresh failed):
@@ -43,7 +48,9 @@ function AuthenticatedLayout() {
 
   return (
     <ArchitectSocketProvider onSessionExpired={handleSessionExpired}>
-      <Outlet />
+      <AppShell email={session.email}>
+        <Outlet />
+      </AppShell>
     </ArchitectSocketProvider>
   );
 }

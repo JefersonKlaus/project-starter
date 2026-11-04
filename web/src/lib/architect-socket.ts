@@ -70,7 +70,7 @@ export interface WebSocketAuth {
 export function getWebSocketBaseUrl(): string {
   const apiId = import.meta.env.VITE_WS_API_ID?.trim();
   if (!apiId) {
-    throw new Error("Configuração ausente: defina VITE_WS_API_ID (veja .env.example).");
+    throw new Error("Configuração ausente: defina VITE_WS_API_ID (veja o arquivo .env).");
   }
   const stage = (import.meta.env.VITE_WS_STAGE?.trim() || DEFAULT_WS_STAGE).replace(
     /^\/+|\/+$/g,
