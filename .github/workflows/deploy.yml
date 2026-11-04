@@ -5,7 +5,7 @@ on:
     branches: [main]                 # runs only when a merge lands on main (apply to development)
     paths:
       - "infra/**"
-      - "backend-ia/api/**"
+      - "backend-ia/lambdas/**"
       - "backend-ia/rag_index/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:                 # manual apply to any env, only allowed from main (see job guards)
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend-ia/api
+        working-directory: backend-ia/lambdas
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: backend-ia/api/requirements-dev.txt
+          cache-dependency-path: backend-ia/lambdas/requirements-dev.txt
 
       # requirements-dev.txt must NOT pull torch/chromadb after the migration
       - run: python -m pip install -r requirements-dev.txt

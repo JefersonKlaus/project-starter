@@ -1,0 +1,15 @@
+-r lambda_create/requirements.txt
+-r lambda_status/requirements.txt
+-r websocket/lambda_ws_connect/requirements.txt
+-r websocket/lambda_ws_prompt/requirements.txt
+-r websocket/lambda_ws_worker/requirements.txt
+
+boto3==1.43.118
+requests==2.34.2
+pyflakes==4.0.3
+pytest
+pytest-cov
+httpx
+
+# RAG generation (local only, never packaged into the Lambda)
+langchain-text-splitters==1.1.3

@@ -32,7 +32,7 @@ locals {
 }
 
 locals {
-  api_dir = "${path.module}/../backend-ia/api"
+  lambdas_dir = "${path.module}/../backend-ia/lambdas"
 }
 
 # ---------------------------------------------------------------------------
@@ -43,9 +43,9 @@ module "lambda_create" {
   source = "./modules/lambda"
 
   lambda_function_name = "${local.prefix}-lambda-create"
-  source_dir           = "${local.api_dir}/lambda_create"
+  source_dir           = "${local.lambdas_dir}/lambda_create"
   handler              = "main.lambda_handler" # main.py sits at the zip root
-  requirements_file    = "${local.api_dir}/lambda_create/requirements.txt"
+  requirements_file    = "${local.lambdas_dir}/lambda_create/requirements.txt"
 
   environment_variables = {
     GROQ_API_KEY  = var.groq_api_key
@@ -74,9 +74,9 @@ module "lambda_status" {
   source = "./modules/lambda"
 
   lambda_function_name = "${local.prefix}-lambda-status"
-  source_dir           = "${local.api_dir}/lambda_status"
+  source_dir           = "${local.lambdas_dir}/lambda_status"
   handler              = "main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_status/requirements.txt" # groq SDK
+  requirements_file    = "${local.lambdas_dir}/lambda_status/requirements.txt" # groq SDK
   memory_size          = 256
   timeout              = 30 # the Groq "hello" call is capped at 10s by the function itself
 
@@ -129,9 +129,9 @@ module "lambda_ws_connect" {
   source = "./modules/lambda"
 
   lambda_function_name = "${local.prefix}-lambda-ws-connect"
-  source_dir           = "${local.api_dir}/lambda_ws_connect"
+  source_dir           = "${local.lambdas_dir}/websocket/lambda_ws_connect"
   handler              = "main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_ws_connect/requirements.txt" # PyJWT (+ cryptography)
+  requirements_file    = "${local.lambdas_dir}/websocket/lambda_ws_connect/requirements.txt" # PyJWT (+ cryptography)
   memory_size          = 256
   timeout              = 10 # the handshake must be answered quickly
   create_function_url  = false
@@ -147,9 +147,9 @@ module "lambda_ws_prompt" {
   source = "./modules/lambda"
 
   lambda_function_name = "${local.prefix}-lambda-ws-prompt"
-  source_dir           = "${local.api_dir}/lambda_ws_prompt"
+  source_dir           = "${local.lambdas_dir}/websocket/lambda_ws_prompt"
   handler              = "main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_ws_prompt/requirements.txt"
+  requirements_file    = "${local.lambdas_dir}/websocket/lambda_ws_prompt/requirements.txt"
   memory_size          = 256
   timeout              = 15 # only validates and hands the job over
   create_function_url  = false
@@ -173,9 +173,9 @@ module "lambda_ws_worker" {
   source = "./modules/lambda"
 
   lambda_function_name = "${local.prefix}-lambda-ws-worker"
-  source_dir           = "${local.api_dir}/lambda_ws_worker"
+  source_dir           = "${local.lambdas_dir}/websocket/lambda_ws_worker"
   handler              = "main.lambda_handler"
-  requirements_file    = "${local.api_dir}/lambda_ws_worker/requirements.txt"
+  requirements_file    = "${local.lambdas_dir}/websocket/lambda_ws_worker/requirements.txt"
   memory_size          = 256
   timeout              = 360 # waits for lambda_create (300s) and then publishes the result
   create_function_url  = false

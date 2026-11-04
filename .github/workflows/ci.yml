@@ -35,7 +35,7 @@ jobs:
     needs: format # only runs if the format check passes
     defaults:
       run:
-        working-directory: backend-ia/api
+        working-directory: backend-ia/lambdas
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: |
-            backend-ia/api/requirements-dev.txt
+            backend-ia/lambdas/requirements-dev.txt
 
       - name: Install dependencies
         run: python -m pip install -r requirements-dev.txt pytest pytest-cov httpx

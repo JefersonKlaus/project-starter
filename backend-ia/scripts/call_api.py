@@ -6,7 +6,7 @@
 <cognito_client_id> is the Terraform output cognito_app_client_id and <ws_api> is either
 the API id (abc123 -> wss://abc123.execute-api.us-east-2.amazonaws.com/<stage>) or the
 full wss:// URL (Terraform output ws_api_url). The user must exist in the Cognito user
-pool (see backend-ia/api/README.md, "WebSocket API"). The architecture is saved to
+pool (see backend-ia/lambdas/README.md, "WebSocket API"). The architecture is saved to
 resultado_arquitetura.json.
 """
 

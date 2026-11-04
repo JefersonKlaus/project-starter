@@ -32,7 +32,6 @@ dist-ssr
 *.sw?
 
 .env
-.env.*
 
 # Test / build output
 coverage/
