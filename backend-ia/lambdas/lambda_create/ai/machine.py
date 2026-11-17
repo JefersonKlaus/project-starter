@@ -4,11 +4,11 @@ from datetime import date
 
 from groq import BadRequestError
 from langchain_core.exceptions import OutputParserException
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_groq import ChatGroq
 from .models import AWSArchitecture
-from .code_linker import link_generated_code
 from .project_layout import DEFAULT_LAYOUT
 
 # Business rules (system prompt, kept in Portuguese on purpose)
@@ -66,13 +66,26 @@ PYTHON
    NUNCA escreva `return json.dumps(...)` direto no handler.
 13. Trate erros: item inexistente retorna 404 (`response.get("Item")` vazio), entrada inválida retorna 400, `ClientError` retorna 500 com mensagem genérica. NUNCA devolva `e.response` ao cliente. Registre o erro com `logging`.
 14. Nunca devolva o `response` bruto do DynamoDB (contém ResponseMetadata). Devolva só os dados.
-15. Inclua `requirements.txt` só com o que realmente precisa (o `boto3` já existe no runtime da Lambda).
+15. Use só a biblioteca padrão do Python e o `boto3`/`botocore` (já existem no runtime da Lambda): o `archive_file` só compacta os arquivos, NÃO instala o `requirements.txt`. Inclua `requirements.txt` só com o que realmente precisa.
 
 GERAÇÃO
 16. Escreva TODO o código HCL e Python completo, de TODAS as Lambdas, linha por linha. É PROIBIDO abreviar com "[CÓDIGO AQUI]", "...", "omitted for brevity" ou "repita para as demais".
 17. O diagrama Mermaid deve usar exatamente os mesmos nomes das Lambdas e arquivos que você gerou, nem mais nem menos.
 18. FORMATO JSON: cada arquivo é UMA string JSON, com quebras de linha como \\n e aspas internas escapadas. Para reduzir erros de escape, no código Python prefira aspas simples. O objeto `terraform` contém os TRÊS arquivos (main.tf, variables.tf, outputs.tf) e só fecha depois do último. Revise as chaves e vírgulas antes de responder.
-19. Responda SOMENTE com o JSON pedido, sem texto antes ou depois."""
+19. Responda SOMENTE com o JSON pedido, sem texto antes ou depois.
+
+VALIDAÇÃO
+20. O projeto será validado automaticamente antes de ser entregue: sintaxe Python e HCL, nomes indefinidos, referências do Terraform, pastas da [ESTRUTURA DO PROJETO], handler dentro do zip, variáveis de ambiente lidas pelo código e ações IAM de cada chamada do `boto3`. Se houver erros, eles serão devolvidos para você corrigir."""
+
+# Sent with the previous answer when the validation finds errors (ai/graph.py)
+REPAIR_REQUEST = """[VALIDAÇÃO AUTOMÁTICA]
+O projeto da sua resposta anterior foi validado e tem os ERROS abaixo; cada um impede o projeto de funcionar.
+Corrija TODOS e devolva o JSON COMPLETO de novo, no mesmo formato: todos os arquivos de `terraform` e `python`, inclusive os que não mudaram.
+Mantenha a [ESTRUTURA DO PROJETO] e tudo o que já está correto.
+
+ERROS:
+"""
+MAX_ERRORS_IN_REPAIR = 40  # keeps the repair prompt small
 
 # Model hosted on Groq (change here to try another one)
 GROQ_MODEL = "openai/gpt-oss-120b"
@@ -149,29 +162,42 @@ def _invoke_with_retry(chain, payload):
             time.sleep(2 * attempt)  # eases the tokens-per-minute rate limit
 
 
-def generate_architecture_script(llm, prompt_text, rag_context, layout=DEFAULT_LAYOUT):
-    """layout: where the project files go (ai/project_layout.infer_layout, from the RAG)."""
-    print("\nGenerating architecture, Mermaid diagram and code...")
-    print(f"Project layout ({layout.origin}): {layout.to_dict()}")
+USER_TEMPLATE = (
+    "[CONTEXTO RAG]:\n{context}\n\n"
+    "[DESCRIÇÃO DO PRODUTO]:\n{product}\n\n"
+    "[ESTRUTURA DO PROJETO]:\n{project_layout}\n\n"
+    "[TAREFA]:\n"
+    "Projete a arquitetura AWS Serverless para este produto e gere o "
+    "Terraform (HCL) e o código Python das Lambdas, seguindo as regras do sistema.\n"
+    "Use analysis_date = {today_date}.\n\n"
+    "{format_instructions}"
+)
 
-    # The Pydantic parser validates the JSON against the AWSArchitecture schema
+
+def repair_messages(previous_answer, errors):
+    """Chat turns that ask the model to fix its previous answer."""
+    listed = [f"- {error}" for error in errors[:MAX_ERRORS_IN_REPAIR]]
+    if len(errors) > MAX_ERRORS_IN_REPAIR:
+        listed.append(f"- ... e mais {len(errors) - MAX_ERRORS_IN_REPAIR} erro(s)")
+    return [
+        AIMessage(content=previous_answer),
+        HumanMessage(content=REPAIR_REQUEST + "\n".join(listed)),
+    ]
+
+
+def generate_draft(llm, prompt_text, rag_context, layout=DEFAULT_LAYOUT, repair=()):
+    """One model call: the architecture as a dict (AWSArchitecture), files not linked yet.
+
+    repair: chat turns from repair_messages() when fixing a previous answer.
+    """
     parser = PydanticOutputParser(pydantic_object=AWSArchitecture)
 
     # With a chat API the manual ChatML tags are no longer needed: Groq applies the model template
     prompt = ChatPromptTemplate.from_messages(
         [
             ("system", "{system_rules}"),
-            (
-                "user",
-                "[CONTEXTO RAG]:\n{context}\n\n"
-                "[DESCRIÇÃO DO PRODUTO]:\n{product}\n\n"
-                "[ESTRUTURA DO PROJETO]:\n{project_layout}\n\n"
-                "[TAREFA]:\n"
-                "Projete a arquitetura AWS Serverless para este produto e gere o "
-                "Terraform (HCL) e o código Python das Lambdas, seguindo as regras do sistema.\n"
-                "Use analysis_date = {today_date}.\n\n"
-                "{format_instructions}",
-            ),
+            ("user", USER_TEMPLATE),
+            MessagesPlaceholder("repair", optional=True),
         ]
     ).partial(format_instructions=parser.get_format_instructions())
 
@@ -185,6 +211,7 @@ def generate_architecture_script(llm, prompt_text, rag_context, layout=DEFAULT_L
             "product": prompt_text,
             "project_layout": layout.describe(),
             "today_date": date.today().isoformat(),
+            "repair": list(repair),
         },
     )
 
@@ -196,12 +223,19 @@ def generate_architecture_script(llm, prompt_text, rag_context, layout=DEFAULT_L
     for files in result["generated_code"].values():
         for name, content in files.items():
             files[name] = unescape_newlines(content)
-
-    # Save the files where the layout says and make the Terraform package/invoke the
-    # Python files that were really generated (the model often gets this wrong)
-    result["warnings"] = link_generated_code(result["generated_code"], layout)
-    result["project_layout"] = layout.to_dict()
     return result
+
+
+def generate_architecture_script(llm, prompt_text, rag_context, layout=DEFAULT_LAYOUT):
+    """Generate, link and validate (repairing when needed) with the LangGraph workflow.
+
+    layout: where the project files go (ai/project_layout.infer_layout, from the RAG).
+    """
+    from .graph import run_architecture_workflow  # the workflow imports this module
+
+    return run_architecture_workflow(
+        llm, prompt_text, rag_context=rag_context, layout=layout
+    )
 
 
 def unescape_newlines(text):

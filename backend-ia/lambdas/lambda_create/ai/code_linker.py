@@ -660,16 +660,17 @@ def _link_lambdas(terraform, python, archives, layout, fixes, issues) -> set:
 
 
 def link_generated_code(
-    generated_code: dict, layout: ProjectLayout = DEFAULT_LAYOUT
+    generated_code: dict, layout: ProjectLayout = DEFAULT_LAYOUT, fixes: list = None
 ) -> list:
     """Normalize the file keys and link Terraform <-> Python in place.
 
     generated_code["terraform"] / ["python"] keep keys relative to the layout folders;
     generated_code["files"] gets {project path: content}, the tree to save to disk.
     Returns the problems that could not be repaired (empty list = consistent).
+    fixes: when a list is given, the repairs that were made are appended to it.
     """
     issues = []
-    fixes = []
+    fixes = [] if fixes is None else fixes
     terraform_keys = _normalize_keys(
         generated_code.get("terraform") or {}, "terraform", layout.terraform_dir, issues
     )

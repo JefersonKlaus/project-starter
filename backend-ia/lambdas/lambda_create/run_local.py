@@ -1,6 +1,6 @@
 """Run lambda_create on your machine (POST /prompt), the way the Lambda runtime does.
 
-    cd backend-ia/lambdas/lambda_create
+    cd backend-ia/api/lambda_create
     python run_local.py
 
 Settings come from backend-ia/.env (GROQ_API_KEY, RAG_INDEX_PATH or RAG_S3_BUCKET).
@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]  # backend-ia/
 DOTENV = BACKEND_DIR / ".env"
-DEFAULT_INDEX = BACKEND_DIR / "rag" / "rag_index.json"  # output of rag/ingest.py
+DEFAULT_INDEX = BACKEND_DIR / "rag_index.json"  # output of rag/ingest.py
 
 # Product description sent to the Lambda
 PROMPT = (
@@ -37,7 +37,8 @@ EVENT = {
     "isBase64Encoded": False,
 }
 
-# Folder where the generated Terraform/Python files are written (None = do not write)
+# Folder where the generated project is written, in the layout of the RAG reference
+# project (or the default one, see ai/project_layout.py). None = do not write
 WRITE_CODE_DIR = None  # e.g. Path("generated")
 
 
@@ -81,15 +82,30 @@ def show(response):
 
 
 def write_generated_code(body, directory):
-    """Write generated_code.{terraform,python} as real files under directory."""
+    """Write the generated project under directory, using the layout from the response.
+
+    generated_code.files maps each relative path (main.tf, lambda/create_item.py, ...)
+    to its content; that layout is what the Terraform archive_file paths expect, so
+    `terraform init && terraform apply` can be run straight from directory.
+    """
+    directory = Path(directory).resolve()
     count = 0
-    for group, files in body.get("generated_code", {}).items():
-        for name, content in files.items():
-            target = directory / group / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-            count += 1
-    print(f"\nWrote {count} generated file(s) under {directory}")
+    for relative_path, content in (
+        body.get("generated_code", {}).get("files", {}).items()
+    ):
+        target = (directory / relative_path).resolve()
+        if not target.is_relative_to(directory):
+            print(f"Skipping {relative_path!r}: outside {directory}")
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        count += 1
+    layout = body.get("project_layout") or {}
+    print(
+        f"\nWrote {count} generated file(s) under {directory} (layout: {layout.get('origin', '?')})"
+    )
+    for warning in body.get("warnings", []):
+        print(f"  warning: {warning}")
 
 
 def run():
